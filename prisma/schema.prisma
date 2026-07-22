@@ -1,0 +1,423 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model bill_billitems {
+  bill_id      BigInt
+  billitems_id BigInt     @unique(map: "UK_5n4k59h3xp9097778fdys70d8")
+  bill_items   bill_items @relation(fields: [billitems_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK87ghql9mhc8pufblptxaouuhl")
+  bills        bills      @relation(fields: [bill_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKp3jn99t624j95u0v0poigoa2g")
+
+  @@index([bill_id], map: "FKp3jn99t624j95u0v0poigoa2g")
+}
+
+model bill_items {
+  id             BigInt          @id @default(autoincrement())
+  price          Decimal?        @db.Decimal(38, 2)
+  quantity       Int
+  product_id     BigInt
+  description    String?         @db.VarChar(255)
+  bill_billitems bill_billitems?
+  products       products        @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKnxfjfage047r297vj65sq8e6h")
+
+  @@index([product_id], map: "FKnxfjfage047r297vj65sq8e6h")
+}
+
+model bills {
+  id                                 BigInt              @id @default(autoincrement())
+  bill_number                        String?             @db.VarChar(255)
+  is_paid                            Boolean?            @db.Bit(1)
+  total_amount                       Decimal?            @db.Decimal(38, 2)
+  billed_user_id                     BigInt?
+  billing_user_id                    BigInt?
+  billing_vendor_id                  BigInt?
+  business_id                        BigInt?
+  category_id                        BigInt?
+  receipt_url                        String?             @db.VarChar(255)
+  created_at                         DateTime?           @default(now())
+  bill_billitems                     bill_billitems[]
+  businesses                         businesses?         @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK4bdw432krrro3s0t3numkw3ob")
+  users_bills_billing_user_idTousers users?              @relation("bills_billing_user_idTousers", fields: [billing_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKbhml0aetvq2phiq4cacs4migq")
+  users_bills_billed_user_idTousers  users?              @relation("bills_billed_user_idTousers", fields: [billed_user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKh16dp5n4kx9hckx11y0quj4el")
+  vendors                            vendors?            @relation(fields: [billing_vendor_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKknafp220mc2b98mqngst66et7")
+  expense_categories                 expense_categories? @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKsm31gb2dmlo1jtehg3nu4jsj2")
+
+  @@index([business_id], map: "FK4bdw432krrro3s0t3numkw3ob")
+  @@index([billing_user_id], map: "FKbhml0aetvq2phiq4cacs4migq")
+  @@index([billed_user_id], map: "FKh16dp5n4kx9hckx11y0quj4el")
+  @@index([billing_vendor_id], map: "FKknafp220mc2b98mqngst66et7")
+  @@index([category_id], map: "FKsm31gb2dmlo1jtehg3nu4jsj2")
+}
+
+model business_members {
+  business_id BigInt
+  user_id     BigInt
+  users       users      @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKl3se6j2mob8wdx6tjckpx0qjt")
+  businesses  businesses @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKo01cepu6mek8gfi8k0sr9epxg")
+
+  @@id([business_id, user_id])
+  @@index([user_id], map: "FKl3se6j2mob8wdx6tjckpx0qjt")
+}
+
+model businesses {
+  id                                           BigInt               @id @default(autoincrement())
+  business_address                             String?              @db.VarChar(255)
+  business_email                               String?              @db.VarChar(255)
+  business_name                                String?              @db.VarChar(255)
+  business_role                                String?              @db.VarChar(255)
+  is_active                                    Boolean?             @db.Bit(1)
+  owner_id                                     BigInt?
+  business_phone                               String?              @db.VarChar(255)
+  tax_id                                       String?              @db.VarChar(255)
+  logo_url                                     String?              @db.VarChar(512)
+  default_currency                             String?              @db.VarChar(8)
+  payment_terms_days                           Int?
+  invoice_prefix                               String?              @db.VarChar(32)
+  invoice_starting_number                      Int?
+  paystack_public_key                          String?              @db.VarChar(512)
+  paystack_secret_key                          String?              @db.VarChar(512)
+  stripe_public_key                            String?              @db.VarChar(512)
+  stripe_secret_key                            String?              @db.VarChar(512)
+  test_mode                                    Boolean?             @default(true)
+  country                                      String?              @db.VarChar(255)
+  bills                                        bills[]
+  business_members                             business_members[]
+  users_businesses_owner_idTousers             users?               @relation("businesses_owner_idTousers", fields: [owner_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKdh1y7wew1fqwy531d5ojohod5")
+  customers                                    customers[]
+  expense_categories                           expense_categories[]
+  income                                       income[]
+  invoices                                     invoices[]
+  products                                     products[]
+  recurringinvoices                            recurringinvoices[]
+  users_users_selected_business_idTobusinesses users[]              @relation("users_selected_business_idTobusinesses")
+
+  @@index([owner_id], map: "FKdh1y7wew1fqwy531d5ojohod5")
+}
+
+model categories {
+  id          BigInt     @id @default(autoincrement())
+  description String?    @db.VarChar(255)
+  name        String     @unique(map: "UK_t8o6pivur7nn124jehx7cygw5") @db.VarChar(255)
+  products    products[]
+}
+
+model customers {
+  id          BigInt     @id @default(autoincrement())
+  address     String?    @db.VarChar(255)
+  email       String?    @db.VarChar(255)
+  first_name  String?    @db.VarChar(255)
+  last_name   String?    @db.VarChar(255)
+  business_id BigInt
+  businesses  businesses @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKjjod36f7buv2adeptxcfec8jm")
+  income      income[]
+  invoices    invoices[]
+
+  @@index([business_id], map: "FKjjod36f7buv2adeptxcfec8jm")
+}
+
+model expense_categories {
+  id          BigInt      @id @default(autoincrement())
+  color       String?     @db.VarChar(255)
+  description String?     @db.VarChar(255)
+  name        String      @db.VarChar(255)
+  business_id BigInt?
+  bills       bills[]
+  businesses  businesses? @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKqf9djfkm1kborgnvy241xc8ly")
+
+  @@index([business_id], map: "FKqf9djfkm1kborgnvy241xc8ly")
+}
+
+model income {
+  id            BigInt      @id @default(autoincrement())
+  amount        Decimal?    @db.Decimal(38, 2)
+  customer_id   BigInt?
+  category_name String?     @db.VarChar(255)
+  description   String?     @db.VarChar(255)
+  income_date   DateTime?   @db.Date
+  source        String?     @db.VarChar(255)
+  business_id   BigInt?
+  businesses    businesses? @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKe9obokq59dh7lj6jy41nvwpwv")
+  customers     customers?  @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKmye2ydkt17csr9khgl97ad6iu")
+
+  @@index([business_id], map: "FKe9obokq59dh7lj6jy41nvwpwv")
+  @@index([customer_id], map: "FKmye2ydkt17csr9khgl97ad6iu")
+}
+
+model invoice_custom_fields {
+  id                                                            BigInt  @id @default(autoincrement())
+  custom_name                                                   String? @db.VarChar(255)
+  customer                                                      String? @db.VarChar(255)
+  frequency                                                     String? @db.VarChar(255)
+  invoice_date                                                  String? @db.VarChar(255)
+  invoice_number                                                String? @db.VarChar(255)
+  is_recurring                                                  String? @db.VarChar(255)
+  price                                                         String? @db.VarChar(255)
+  product                                                       String? @db.VarChar(255)
+  quantity                                                      String? @db.VarChar(255)
+  total_amount                                                  String? @db.VarChar(255)
+  user_id                                                       BigInt?
+  users_invoice_custom_fields_user_idTousers                    users?  @relation("invoice_custom_fields_user_idTousers", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKmsrn0jyvgoyeegjs484ilbf7")
+  users_users_selected_custom_invoice_idToinvoice_custom_fields users[] @relation("users_selected_custom_invoice_idToinvoice_custom_fields")
+
+  @@index([user_id], map: "FKmsrn0jyvgoyeegjs484ilbf7")
+}
+
+model invoice_items {
+  id         BigInt   @id @default(autoincrement())
+  discount   BigInt?
+  quantity   Int
+  invoice_id BigInt
+  product_id BigInt
+  invoices   invoices @relation(fields: [invoice_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK46ae0lhu1oqs7cv91fn6y9n7w")
+  products   products @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKs3tu9gmkgshq8oeq5n0rinxeu")
+
+  @@index([invoice_id], map: "FK46ae0lhu1oqs7cv91fn6y9n7w")
+  @@index([product_id], map: "FKs3tu9gmkgshq8oeq5n0rinxeu")
+}
+
+model invoices {
+  id                BigInt             @id @default(autoincrement())
+  approval_status   String?            @db.VarChar(255)
+  currency_code     String?            @db.VarChar(255)
+  frequency         String?            @db.VarChar(255)
+  invoice_date      DateTime?          @db.DateTime(6)
+  invoice_number    String?            @db.VarChar(255)
+  invoice_status    String?            @db.VarChar(255)
+  is_paid           Boolean?           @db.Bit(1)
+  is_recurring      Boolean            @db.Bit(1)
+  total_amount      Decimal?           @db.Decimal(38, 2)
+  due_date          DateTime?          @db.Date
+  amount_paid       Decimal?           @db.Decimal(38, 2)
+  paid_date         DateTime?          @db.Date
+  business_id       BigInt
+  customer_id       BigInt
+  invoice_items     invoice_items[]
+  businesses        businesses         @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKggnugoub9tqww1drff1979c7h")
+  customers         customers          @relation(fields: [customer_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKq2w4hmh6l9othnp6cepp0cfe2")
+  recurringinvoices recurringinvoices?
+
+  @@index([business_id], map: "FKggnugoub9tqww1drff1979c7h")
+  @@index([customer_id], map: "FKq2w4hmh6l9othnp6cepp0cfe2")
+}
+
+model plans {
+  id                     BigInt          @id @default(autoincrement())
+  description            String?         @db.VarChar(255)
+  duration_in_days       Int?
+  name                   String          @unique(map: "UK_j2syv9y60858xbq169nbeg7ea") @db.VarChar(255)
+  price                  Float?
+  display_name           String?         @db.VarChar(255)
+  price_ngn_monthly      Float?
+  price_ngn_yearly       Float?
+  price_usd_monthly      Float?
+  price_usd_yearly       Float?
+  max_invoices_per_month Int?
+  max_businesses         Int?
+  max_team_members       Int?
+  allow_payment_collection Boolean?      @default(false)
+  allow_recurring_invoices Boolean?      @default(false)
+  allow_custom_templates Boolean?        @default(false)
+  allow_api_access       Boolean?        @default(false)
+  is_active              Boolean?        @default(true)
+  subscriptions          subscriptions[]
+}
+
+model products {
+  id                BigInt          @id @default(autoincrement())
+  is_product_active Boolean?        @db.Bit(1)
+  name              String?         @db.VarChar(255)
+  unit_price        Decimal?        @db.Decimal(38, 2)
+  business_id       BigInt
+  category_id       BigInt?
+  bill_items        bill_items[]
+  invoice_items     invoice_items[]
+  businesses        businesses      @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKi65q12p725kxcn1jcosg2x9y4")
+  categories        categories?     @relation(fields: [category_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKog2rp4qthbtt2lfyhfo32lsw9")
+
+  @@index([business_id], map: "FKi65q12p725kxcn1jcosg2x9y4")
+  @@index([category_id], map: "FKog2rp4qthbtt2lfyhfo32lsw9")
+}
+
+model recurringinvoices {
+  id                  BigInt      @id @default(autoincrement())
+  invoice_id          BigInt?     @unique(map: "UK_1p0s506p4yvh4vg9fvi19wmr4") // template invoice
+  business_id         BigInt?
+  frequency           String?     @db.VarChar(255) // WEEKLY | MONTHLY | QUARTERLY | ANNUALLY
+  start_date          DateTime?   @db.Date
+  end_date            DateTime?   @db.Date
+  next_invoice_date   DateTime?   @db.Date
+  last_generated_date DateTime?   @db.Date
+  day_of_month        Int?
+  is_active           Boolean?    @default(true)
+  auto_send           Boolean?    @default(false)
+  generated_count     Int?        @default(0)
+  max_occurrences     Int?
+  created_at          DateTime?   @default(now())
+  updated_at          DateTime?   @updatedAt
+  invoices            invoices?   @relation(fields: [invoice_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK52ai63sme8nmbxrwp1s3v001j")
+  businesses          businesses? @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_recurring_business")
+
+  @@index([business_id], map: "FK_recurring_business")
+  @@index([next_invoice_date], map: "idx_recurring_next_date")
+}
+
+model roles {
+  id        Int         @id @default(autoincrement())
+  name      roles_name?
+  user_role user_role[]
+}
+
+model subscriptions {
+  id           BigInt   @id @default(autoincrement())
+  end_date     DateTime @db.DateTime(6)
+  is_active    Boolean  @db.Bit(1)
+  is_cancelled Boolean  @db.Bit(1)
+  start_date   DateTime @db.DateTime(6)
+  trial_end_date          DateTime? @db.DateTime(6)
+  status                  String?   @db.VarChar(32) // ACTIVE | TRIAL | EXPIRED | CANCELLED
+  payment_gateway         String?   @db.VarChar(32)
+  gateway_subscription_id String?   @db.VarChar(255)
+  auto_renew              Boolean?  @default(true)
+  last_payment_date       DateTime? @db.DateTime(6)
+  next_payment_date       DateTime? @db.DateTime(6)
+  plan_id      BigInt
+  user_id      BigInt
+  plans        plans    @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKb1uf5qnxi6uj95se8ykydntl1")
+  users        users    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKhro52ohfqfbay9774bev0qinr")
+
+  @@index([plan_id], map: "FKb1uf5qnxi6uj95se8ykydntl1")
+  @@index([user_id], map: "FKhro52ohfqfbay9774bev0qinr")
+}
+
+model user_role {
+  user_id BigInt
+  role_id Int
+  users   users  @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKj345gk1bovqvfame88rcx7yyx")
+  roles   roles  @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKt7e7djp752sqn6w22i6ocqy6q")
+
+  @@id([user_id, role_id])
+  @@index([role_id], map: "FKt7e7djp752sqn6w22i6ocqy6q")
+}
+
+model users {
+  id                                                                            BigInt                  @id @default(autoincrement())
+  date_added                                                                    String?                 @db.VarChar(255)
+  email                                                                         String?                 @db.VarChar(255)
+  first_name                                                                    String?                 @db.VarChar(255)
+  last_login                                                                    DateTime?               @db.DateTime(6)
+  last_name                                                                     String?                 @db.VarChar(255)
+  password                                                                      String?                 @db.VarChar(255)
+  status                                                                        Boolean                 @db.Bit(1)
+  token_expiry_time                                                             DateTime?               @db.DateTime(6)
+  username                                                                      String?                 @db.VarChar(255)
+  verification_token                                                            String?                 @db.VarChar(255)
+  verified                                                                      Boolean                 @db.Bit(1)
+  selected_business_id                                                          BigInt?
+  selected_custom_invoice_id                                                    BigInt?
+  bills_bills_billing_user_idTousers                                            bills[]                 @relation("bills_billing_user_idTousers")
+  bills_bills_billed_user_idTousers                                             bills[]                 @relation("bills_billed_user_idTousers")
+  business_members                                                              business_members[]
+  businesses_businesses_owner_idTousers                                         businesses[]            @relation("businesses_owner_idTousers")
+  invoice_custom_fields_invoice_custom_fields_user_idTousers                    invoice_custom_fields[] @relation("invoice_custom_fields_user_idTousers")
+  subscriptions                                                                 subscriptions[]
+  user_role                                                                     user_role[]
+  invoice_custom_fields_users_selected_custom_invoice_idToinvoice_custom_fields invoice_custom_fields?  @relation("users_selected_custom_invoice_idToinvoice_custom_fields", fields: [selected_custom_invoice_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKhr52v0vwpln0txhdlyiec5572")
+  businesses_users_selected_business_idTobusinesses                             businesses?             @relation("users_selected_business_idTobusinesses", fields: [selected_business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKsslc5ranl2npfonvj5eh4cvfg")
+
+  @@index([selected_custom_invoice_id], map: "FKhr52v0vwpln0txhdlyiec5572")
+  @@index([selected_business_id], map: "FKsslc5ranl2npfonvj5eh4cvfg")
+}
+
+model vendor_products {
+  id                    BigInt   @id @default(autoincrement())
+  vendor_product_name   String?  @db.VarChar(255)
+  vendor_product_price  Decimal? @db.Decimal(38, 2)
+  vendor_product_status Boolean? @db.Bit(1)
+  vendor_id             BigInt
+  vendors               vendors  @relation(fields: [vendor_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKp7rdrgp4sccabnwe2rckjuu1b")
+
+  @@index([vendor_id], map: "FKp7rdrgp4sccabnwe2rckjuu1b")
+}
+
+model vendors {
+  id              BigInt            @id @default(autoincrement())
+  email           String?           @db.VarChar(255)
+  name            String?           @db.VarChar(255)
+  status          Boolean?          @db.Bit(1)
+  bills           bills[]
+  vendor_products vendor_products[]
+}
+
+model payments {
+  id              BigInt    @id @default(autoincrement())
+  invoice_id      BigInt?
+  business_id     BigInt?
+  amount          Decimal?  @db.Decimal(38, 2)
+  currency        String?   @db.VarChar(8)
+  method          String?   @db.VarChar(32) // PAYSTACK | STRIPE | PAYPAL | MANUAL
+  transaction_ref String?   @db.VarChar(255)
+  status          String?   @db.VarChar(32) // PENDING | SUCCESS | FAILED
+  paid_at         DateTime? @db.DateTime(6)
+  created_at      DateTime? @default(now())
+
+  @@index([invoice_id])
+  @@index([business_id])
+}
+
+model tax_rates {
+  id          BigInt    @id @default(autoincrement())
+  business_id BigInt?
+  name        String?   @db.VarChar(255)
+  rate        Decimal?  @db.Decimal(10, 4)
+  is_default  Boolean?  @default(false)
+  created_at  DateTime? @default(now())
+
+  @@index([business_id])
+}
+
+model portal_tokens {
+  id         BigInt    @id @default(autoincrement())
+  token      String    @unique @db.VarChar(255)
+  invoice_id BigInt?
+  expires_at DateTime? @db.DateTime(6)
+  used       Boolean?  @default(false)
+  created_at DateTime? @default(now())
+
+  @@index([invoice_id])
+}
+
+model activity_log {
+  id          BigInt    @id @default(autoincrement())
+  user_id     BigInt?
+  business_id BigInt?
+  action      String?   @db.VarChar(255)
+  entity      String?   @db.VarChar(255)
+  entity_id   BigInt?
+  metadata    String?   @db.Text
+  created_at  DateTime? @default(now())
+
+  @@index([business_id])
+  @@index([user_id])
+}
+
+model notification_preferences {
+  id               BigInt   @id @default(autoincrement())
+  user_id          BigInt?  @unique
+  business_id      BigInt?
+  invoice_sent     Boolean? @default(true)
+  payment_received Boolean? @default(true)
+  invoice_overdue  Boolean? @default(true)
+  bill_reminder    Boolean? @default(true)
+}
+
+enum roles_name {
+  ROLE_USER
+  BUSINESS_USER
+  ROLE_SUPER_ADMIN
+  ROLE_ADMIN
+}
