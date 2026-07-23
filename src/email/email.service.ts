@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 
@@ -11,7 +11,7 @@ import * as nodemailer from 'nodemailer';
  * Templates mirror the legacy ZeptoEmailService subjects/wording for parity.
  */
 @Injectable()
-export class EmailService {
+export class EmailService implements OnModuleInit {
   private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter | null = null;
   private readonly from: string;
@@ -22,14 +22,32 @@ export class EmailService {
     const pass = this.config.get<string>('ZEPTO_PASS');
     this.from = this.config.get<string>('ZEPTO_FROM') ?? 'noreply@go54.com';
     if (host && user && pass) {
+      const port = Number(this.config.get<string>('ZEPTO_PORT') ?? 465);
+      // Port 465 = implicit TLS (connect over SSL). 587/25 = STARTTLS (plain
+      // connect, then upgrade). Nodemailer's `secure` must match: true only for
+      // 465. ZEPTO_SECURE can override for non-standard setups.
+      const secureOverride = this.config.get<string>('ZEPTO_SECURE');
+      const secure = secureOverride != null ? secureOverride === 'true' : port === 465;
       this.transporter = nodemailer.createTransport({
         host,
-        port: Number(this.config.get<string>('ZEPTO_PORT') ?? 465),
-        secure: true, // implicit SSL on 465 (mail.smtps.ssl.enable=true)
+        port,
+        secure,
         auth: { user, pass },
       });
+      this.logger.log(`SMTP configured: ${host}:${port} (secure=${secure}), from=${this.from}`);
     } else {
-      this.logger.warn('ZeptoMail SMTP not configured (ZEPTO_*): emails will be logged, not sent.');
+      this.logger.warn('SMTP not configured (ZEPTO_*): emails will be logged, not sent.');
+    }
+  }
+
+  /** Verify SMTP connectivity at boot so misconfig shows up immediately, not on first send. */
+  async onModuleInit(): Promise<void> {
+    if (!this.transporter) return;
+    try {
+      await this.transporter.verify();
+      this.logger.log('SMTP connection verified — emails will be sent.');
+    } catch (err) {
+      this.logger.error(`SMTP verify failed — check ZEPTO_* settings: ${(err as Error).message}`);
     }
   }
 

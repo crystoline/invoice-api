@@ -29,6 +29,22 @@ export class InvoiceService {
     return user.roles.includes(Role.ADMIN);
   }
 
+  /**
+   * Maker-checker access. A "maker" is the business owner or any team member
+   * (business_members); admins too. Makers can create/send invoices; approval
+   * (the "checker" step) stays owner/admin only — see approveInvoice.
+   * Pass a business that was loaded with `business_members` included.
+   */
+  private isOwnerMemberOrAdmin(
+    biz: { owner_id: bigint | null; business_members?: { user_id: bigint }[] } | null,
+    user: AuthUser,
+  ): boolean {
+    if (!biz) return false;
+    if (this.isAdmin(user)) return true;
+    if (biz.owner_id === user.id) return true;
+    return (biz.business_members ?? []).some((m) => m.user_id === user.id);
+  }
+
   private mapInvoice(inv: InvoiceWithItems) {
     return {
       id: inv.id,
@@ -43,6 +59,9 @@ export class InvoiceService {
       currencyCode: inv.currency_code,
       isPaid: inv.is_paid,
       approvalStatus: inv.approval_status,
+      amountPaid: num(inv.amount_paid),
+      dueDate: inv.due_date,
+      paidDate: inv.paid_date,
       items: inv.invoice_items.map((it) => {
         const unitPrice = num(it.products?.unit_price);
         const quantity = it.quantity ?? 0;
@@ -118,10 +137,13 @@ export class InvoiceService {
     if (!dbUser?.verified) return fail('Please verify your account to be able to create an invoice');
     const business = await this.prisma.businesses.findUnique({
       where: { id: BigInt(dto.businessId ?? 0) },
-      include: { customers: true },
+      include: { customers: true, business_members: true },
     });
     if (!business) throw new Error('Business not found');
-    if (business.owner_id !== user.id) return fail('You do not have permission to create an invoice for this business');
+    // Maker step: owner or any team member may draft an invoice.
+    if (!this.isOwnerMemberOrAdmin(business, user)) {
+      return fail('You do not have permission to create an invoice for this business');
+    }
     const customer = await this.prisma.customers.findUnique({ where: { id: BigInt(dto.customerId ?? 0) } });
     if (!customer) throw new Error('Customer not found');
     if (!business.customers.some((c) => c.email === customer.email)) {
@@ -158,10 +180,11 @@ export class InvoiceService {
     try {
       const business = await this.prisma.businesses.findUnique({
         where: { id: businessId },
-        include: { invoices: { include: invoiceInclude } },
+        include: { invoices: { include: invoiceInclude }, business_members: true },
       });
       if (!business) throw new Error('Business not found');
-      if (business.owner_id === user.id || this.isAdmin(user)) {
+      // Owner, team members and admins can all view the business's invoices.
+      if (this.isOwnerMemberOrAdmin(business, user)) {
         return ok('Business Invoices fetched successfully', business.invoices.map((i) => this.mapInvoice(i)));
       }
       return fail('You do not have access to this business invoices');
@@ -243,35 +266,50 @@ export class InvoiceService {
     return ok('Currency codes fetched successfully', CURRENCY_CODES);
   }
 
-  // 3.7 — owner
+  // 3.7 — checker step: owner or admin only (a maker cannot approve their own work)
   async approveInvoice(dto: InvoiceApprovalDto, user: AuthUser): Promise<ResponseObject> {
     try {
+      const status = (dto.approvalStatus ?? 'approved').toLowerCase();
+      if (!['approved', 'rejected', 'pending'].includes(status)) {
+        return fail('Invalid approval status. Use approved, rejected or pending.');
+      }
       const invoice = await this.prisma.invoices.findUnique({
         where: { id: BigInt(dto.invoiceId ?? 0) },
         include: { businesses: true },
       });
       if (!invoice) throw new Error('Invoice not found');
-      if (invoice.businesses.owner_id !== user.id) throw new Error('Only the business owner can approve this invoice');
+      // Only the business owner (or an admin) may approve/reject — the checker.
+      if (invoice.businesses.owner_id !== user.id && !this.isAdmin(user)) {
+        throw new Error('Only the business owner can approve this invoice');
+      }
+      if (invoice.invoice_status === 'sent') {
+        return fail('This invoice has already been sent and can no longer be re-approved.');
+      }
       const updated = await this.prisma.invoices.update({
         where: { id: invoice.id },
-        data: { approval_status: dto.approvalStatus },
+        data: { approval_status: status },
         include: invoiceInclude,
       });
-      return ok('Invoice approved successfully', this.mapInvoice(updated));
+      const verb = status === 'rejected' ? 'rejected' : status === 'pending' ? 'reset to pending' : 'approved';
+      return ok(`Invoice ${verb} successfully`, this.mapInvoice(updated));
     } catch (e) {
       return fail(`Failed  to approve Invoice: ${(e as Error).message}`);
     }
   }
 
-  // 3.8 — owner; approved
+  // 3.8 — maker (owner/member/admin) may send, but only once the checker approved
   async sendInvoice(invoiceId: bigint, user: AuthUser): Promise<ResponseObject> {
     const invoice = await this.prisma.invoices.findUnique({
       where: { id: invoiceId },
-      include: { businesses: true, customers: true, invoice_items: { include: { products: true } } },
+      include: {
+        businesses: { include: { business_members: true } },
+        customers: true,
+        invoice_items: { include: { products: true } },
+      },
     });
     if (!invoice) throw new Error('Invoice not found');
-    if (invoice.businesses.owner_id !== user.id) {
-      return fail('Failed  to send Invoice. Only the business owner can trigger sending this invoice  ');
+    if (!this.isOwnerMemberOrAdmin(invoice.businesses, user)) {
+      return fail('Failed  to send Invoice. You do not have access to this business.');
     }
     if (invoice.approval_status !== 'approved') {
       return fail('Failed  to send Invoice. Invoice must be approved before it can be sent  ');
