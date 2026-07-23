@@ -1,6 +1,17 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import * as Handlebars from 'handlebars';
-import puppeteer from 'puppeteer';
+import type { Browser, Viewport } from 'puppeteer-core';
+
+// @sparticuz/chromium's default-export types resolve to the class, not the
+// runtime object, so defaultViewport/headless aren't visible. This is the
+// actual shape we consume.
+interface ServerlessChromium {
+  args: string[];
+  defaultViewport: Viewport | null;
+  headless: boolean | 'shell';
+  executablePath(): Promise<string>;
+  setGraphicsMode: boolean;
+}
 
 /** Shape passed to the PDF templates (built by the invoice service). */
 export interface InvoicePdfModel {
@@ -72,6 +83,8 @@ const DEFAULT_TEMPLATE = Handlebars.compile(`<!DOCTYPE html><html><head><meta ch
 
 @Injectable()
 export class PdfService {
+  private readonly logger = new Logger(PdfService.name);
+
   async generateRawPdf(invoice: InvoicePdfModel): Promise<Buffer> {
     return this.render(RAW_TEMPLATE({ invoice }));
   }
@@ -80,15 +93,48 @@ export class PdfService {
     return this.render(DEFAULT_TEMPLATE({ invoice }));
   }
 
-  private async render(html: string): Promise<Buffer> {
-    const browser = await puppeteer.launch({
+  /**
+   * Launch a Chromium suited to the runtime.
+   *
+   * - Serverless (Vercel/Lambda): puppeteer-core + @sparticuz/chromium, which
+   *   ships a Chromium binary that actually runs in that sandbox. The full
+   *   `puppeteer` package's bundled Chromium does NOT (hence ERR_REQUIRE_ESM
+   *   was only the first wall).
+   * - Local/dev: the full `puppeteer` (a devDependency). Loaded via a computed
+   *   specifier so Vercel's file tracer can't pull that heavy dep into the
+   *   function bundle. Both imports are dynamic — puppeteer 25 is ESM-only, so
+   *   a static (compiled to require()) import throws ERR_REQUIRE_ESM.
+   */
+  private async launchBrowser(): Promise<Browser> {
+    const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_VERSION;
+    if (isServerless) {
+      const chromium = (await import('@sparticuz/chromium')).default as unknown as ServerlessChromium;
+      const puppeteer = (await import('puppeteer-core')).default;
+      chromium.setGraphicsMode = false; // no WebGL needed for invoices — saves memory
+      return puppeteer.launch({
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,
+      });
+    }
+    const specifier = 'puppeteer';
+    const puppeteer = (await import(specifier)).default;
+    return puppeteer.launch({
       headless: true,
       args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
+  }
+
+  private async render(html: string): Promise<Buffer> {
+    const browser = await this.launchBrowser();
     try {
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'load' });
       return Buffer.from(await page.pdf({ format: 'A4', printBackground: true }));
+    } catch (err) {
+      this.logger.error(`PDF render failed: ${(err as Error).message}`);
+      throw err;
     } finally {
       await browser.close();
     }
