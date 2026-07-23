@@ -68,6 +68,23 @@ $ npm install -g @nestjs/mau
 $ mau deploy
 ```
 
+#### Migrations Steps
+
+```bash
+cd invoicing-api
+npm run prisma:migrate:deploy   # applies 0_init → creates every table
+npm run prisma:generate         # only needed if node_modules/.prisma is stale
+npm run db:seed                 # optional, if you want the seed rows
+npm run start:dev               # env is read at boot — a restart is mandatory
+
+```
+
+1. Edit schema.prisma
+2. `npm run prisma:migrate:new -- <name>`
+3. Review the generated migration.sql
+4. `npm run prisma:migrate:deploy`
+5. Commit the prisma/migrations/ folder
+
 With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
 
 ## Resources

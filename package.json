@@ -19,6 +19,9 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:generate": "prisma generate",
+    "prisma:migrate:status": "prisma migrate status",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:migrate:new": "node scripts/new-migration.mjs",
     "prisma:pull": "prisma db pull",
     "prisma:studio": "prisma studio",
     "db:seed": "ts-node prisma/seed.ts"
