@@ -5,6 +5,10 @@
   "author": "",
   "private": true,
   "license": "UNLICENSED",
+  "engines": {
+    "//": "Node 22.12+ can require() ESM. Several deps (puppeteer-core, otplib) are ESM-only, so an older runtime turns any transpiled import() into ERR_REQUIRE_ESM.",
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",

@@ -1,6 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as Handlebars from 'handlebars';
+import { pathToFileURL } from 'url';
 import type { Browser, Viewport } from 'puppeteer-core';
+
+/**
+ * A real, runtime `import()` that no transpiler or bundler can rewrite.
+ *
+ * Why this exists: puppeteer / puppeteer-core are ESM-only, and Vercel compiles
+ * this project's `src/` to CommonJS with esbuild — which turns `await import(x)`
+ * back into `require(x)`. On a Node runtime older than 22.12 (no `require(esm)`)
+ * that throws ERR_REQUIRE_ESM. Building the importer with `new Function` keeps
+ * it opaque to esbuild/tsc, so it stays a genuine dynamic ESM import.
+ */
+const esmImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string,
+) => Promise<Record<string, unknown> & { default?: unknown }>;
 
 // @sparticuz/chromium's default-export types resolve to the class, not the
 // runtime object, so defaultViewport/headless aren't visible. This is the
@@ -11,6 +25,16 @@ interface ServerlessChromium {
   headless: boolean | 'shell';
   executablePath(): Promise<string>;
   setGraphicsMode: boolean;
+}
+
+/** The slice of puppeteer / puppeteer-core we use (both expose `launch`). */
+interface PuppeteerLike {
+  launch(options: {
+    args?: string[];
+    defaultViewport?: Viewport | null;
+    executablePath?: string;
+    headless?: boolean | 'shell';
+  }): Promise<Browser>;
 }
 
 /** One rendered line on the invoice. Amounts are precomputed by the caller. */
@@ -261,11 +285,29 @@ export class PdfService {
    *   function bundle. Both imports are dynamic — puppeteer 25 is ESM-only, so
    *   a static (compiled to require()) import throws ERR_REQUIRE_ESM.
    */
+  private async loadPuppeteerCore(): Promise<PuppeteerLike> {
+    // require.resolve is a static call the Vercel file tracer understands, so
+    // puppeteer-core still gets bundled into the function even though the real
+    // load below is invisible to it. Falls back to the bare specifier when
+    // `require` is unavailable (e.g. if this ever runs as ESM).
+    let target = 'puppeteer-core';
+    try {
+      target = pathToFileURL(require.resolve('puppeteer-core')).href;
+    } catch {
+      /* keep the bare specifier */
+    }
+    const mod = await esmImport(target);
+    return (mod.default ?? mod) as PuppeteerLike;
+  }
+
   private async launchBrowser(): Promise<Browser> {
     const isServerless = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_VERSION;
+
     if (isServerless) {
+      // @sparticuz/chromium ships a real CommonJS build, so a normal dynamic
+      // import is safe here however it gets transpiled.
       const chromium = (await import('@sparticuz/chromium')).default as unknown as ServerlessChromium;
-      const puppeteer = (await import('puppeteer-core')).default;
+      const puppeteer = await this.loadPuppeteerCore();
       chromium.setGraphicsMode = false; // no WebGL needed for invoices — saves memory
       return puppeteer.launch({
         args: chromium.args,
@@ -274,12 +316,20 @@ export class PdfService {
         headless: chromium.headless,
       });
     }
-    const specifier = 'puppeteer';
-    const puppeteer = (await import(specifier)).default;
-    return puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
+
+    // Local dev. Prefer an explicit Chrome path; otherwise fall back to the full
+    // `puppeteer` devDependency and its bundled browser. Loaded through
+    // esmImport so the bundler never traces this dev-only package into the
+    // serverless function.
+    const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    const args = ['--no-sandbox', '--disable-setuid-sandbox'];
+    if (executablePath) {
+      const puppeteer = await this.loadPuppeteerCore();
+      return puppeteer.launch({ headless: true, args, executablePath });
+    }
+    const mod = await esmImport('puppeteer');
+    const puppeteer = (mod.default ?? mod) as PuppeteerLike;
+    return puppeteer.launch({ headless: true, args });
   }
 
   private async render(html: string): Promise<Buffer> {
