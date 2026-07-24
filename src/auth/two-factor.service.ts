@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { generateSecret, generateURI, verifySync } from 'otplib';
+import { generateSecret, keyUri, verifyToken } from './totp.util';
 import * as QRCode from 'qrcode';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
@@ -12,8 +12,8 @@ const RECOVERY_CODE_COUNT = 10;
 /** No 0/O/1/I — 32 chars, so `byte % 32` is bias-free over 256 values. */
 const CODE_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 /**
- * Drift allowance, in seconds (otplib v13 takes seconds, not step counts).
- * 30s = one period either side, so a slightly-off device clock still works.
+ * Drift allowance either side, in seconds. 30s = one period, so a slightly-off
+ * device clock still works.
  */
 const TOTP_TOLERANCE_SECONDS = 30;
 
@@ -72,7 +72,7 @@ export class TwoFactorService {
     const secret = generateSecret();
     const issuer = this.config.get<string>('APP_NAME') ?? 'Invoicing';
     const account = dbUser.email ?? dbUser.username ?? String(dbUser.id);
-    const otpauthUrl = generateURI({ issuer, label: account, secret });
+    const otpauthUrl = keyUri(issuer, account, secret);
 
     await this.prisma.users.update({
       where: { id: dbUser.id },
@@ -213,18 +213,11 @@ export class TwoFactorService {
 
   private verifyTotp(secret: string | null, token: string): boolean {
     if (!secret || !token) return false;
-    try {
-      const result = verifySync({
-        secret,
-        token: String(token).replace(/\s+/g, ''),
-        epochTolerance: TOTP_TOLERANCE_SECONDS,
-      });
-      return result.valid;
-    } catch {
-      // otplib throws on malformed input (e.g. a recovery code) — treat as a miss
-      // so verifyAny can fall through to the recovery-code path.
-      return false;
-    }
+    // Returns false rather than throwing on a malformed code (e.g. a recovery
+    // code), so verifyAny can fall through to the recovery-code path.
+    return verifyToken(secret, String(token).replace(/\s+/g, ''), {
+      toleranceSeconds: TOTP_TOLERANCE_SECONDS,
+    });
   }
 
   /** Burn a matching unused recovery code. Returns true if one matched. */
