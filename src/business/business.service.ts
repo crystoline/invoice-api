@@ -200,11 +200,14 @@ export class BusinessService {
       const code = this.invitations.generateAndStore(businessId);
       const base = this.config.get<string>('APP_BASE_URL') ?? 'http://localhost:8080';
       const invitationUrl = `${base}/api/businesses/join-business/${businessId}/${code}`; // fixed segment
-      const invitee = await this.prisma.users.findFirst({ where: { email } });
-      await this.email.sendMail(
+      const inviter = user ? await this.prisma.users.findUnique({ where: { id: user.id } }) : null;
+      const inviterName = [inviter?.first_name, inviter?.last_name].filter(Boolean).join(' ');
+      await this.email.sendBusinessInvitationEmail(
         email,
-        `Invitation to Join  ${biz.business_name}`,
-        `<p>Hello ${invitee?.first_name ?? ''},</p><p>Click the link to join ${biz.business_name}:</p><p><a href="${invitationUrl}">${invitationUrl}</a></p>`,
+        biz.business_name ?? 'a business',
+        code,
+        invitationUrl,
+        inviterName || undefined,
       );
       return ok('Invitation email sent successfully.');
     } catch (e) {

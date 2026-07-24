@@ -251,16 +251,33 @@ export class RecurringInvoiceService {
         generated += 1;
 
         if (r.auto_send && created.customers?.email) {
-          const rows = created.invoice_items
-            .map((it) => `<tr><td>${it.products.name ?? ''}</td><td>${it.quantity}</td><td>${num(it.products.unit_price) ?? ''}</td></tr>`)
-            .join('');
-          await this.email.sendMail(
-            created.customers.email,
-            `Invoice ${created.invoice_number}`,
-            `<h2>Invoice from ${created.businesses.business_name ?? ''}</h2>
-             <table border="1" cellpadding="6"><thead><tr><th>Product</th><th>Qty</th><th>Price</th></tr></thead><tbody>${rows}</tbody></table>
-             <p><strong>Total: ${num(created.total_amount)} ${created.currency_code ?? ''}</strong></p>`,
-          );
+          const total = num(created.total_amount) ?? 0;
+          const paid = num(created.amount_paid) ?? 0;
+          await this.email.sendInvoiceEmail({
+            to: created.customers.email,
+            customerName:
+              [created.customers.first_name, created.customers.last_name].filter(Boolean).join(' ') || '',
+            businessName: created.businesses.business_name ?? 'your supplier',
+            businessEmail: created.businesses.business_email ?? null,
+            invoiceNumber: created.invoice_number ?? '',
+            invoiceDate: created.invoice_date,
+            dueDate: created.due_date ?? null,
+            currencyCode: created.currency_code ?? 'NGN',
+            totalAmount: total,
+            amountPaid: paid,
+            items: created.invoice_items.map((it) => {
+              const unitPrice = num(it.products?.unit_price) ?? 0;
+              const quantity = it.quantity ?? 0;
+              const discount = it.discount != null ? Number(it.discount) : 0;
+              const gross = unitPrice * quantity;
+              return {
+                name: it.products?.name ?? 'Item',
+                quantity,
+                unitPrice,
+                amount: gross - (gross * discount) / 100,
+              };
+            }),
+          });
           await this.prisma.invoices.update({ where: { id: created.id }, data: { invoice_status: 'sent' } });
         }
 

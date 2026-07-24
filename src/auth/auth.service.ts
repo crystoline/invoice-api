@@ -11,6 +11,8 @@ import { formatDateAdded } from '../common/util/date.util';
 import { generateVerificationToken } from '../common/util/token.util';
 import { formatLastActivity } from './jwt.util';
 import { SignupDto, LoginDto, ChangePasswordEmailDto } from './dto/auth.dto';
+import { TwoFactorLoginDto } from './dto/two-factor.dto';
+import { TwoFactorService } from './two-factor.service';
 
 const userWithRoles = Prisma.validator<Prisma.usersDefaultArgs>()({
   include: { user_role: { include: { roles: true } } },
@@ -24,6 +26,7 @@ export class AuthService {
     private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly jwt: JwtService,
+    private readonly twoFactor: TwoFactorService,
   ) {}
 
   private async roleIdByName(name: roles_name): Promise<number> {
@@ -116,6 +119,62 @@ export class AuthService {
     const matches = await bcrypt.compare(dto.password ?? '', user.password);
     if (!matches) throw new UnauthorizedException('Bad credentials');
 
+    // 2FA gate. No session is minted here — the caller must come back through
+    // completeTwoFactorLogin with a valid code. The challenge is short-lived
+    // and single-purpose, so it cannot be used as an access token.
+    if (user.twofa_enabled && user.totp_secret) {
+      return {
+        headers: {},
+        body: {
+          responseCode: '00',
+          success: true,
+          message: 'Enter your two-factor authentication code to finish signing in.',
+          data: {
+            twoFactorRequired: true,
+            challengeToken: this.signTwoFactorChallenge(user.id),
+            email: user.email,
+          },
+        },
+        statusCode: 'OK',
+        statusCodeValue: 200,
+      };
+    }
+
+    return this.buildLoginSuccess(user);
+  }
+
+  /** Second leg of a 2FA login: challenge token + code → a real session. */
+  async completeTwoFactorLogin(dto: TwoFactorLoginDto): Promise<Record<string, unknown>> {
+    let userId: bigint;
+    try {
+      const payload = this.jwt.verify<{ sub?: string; purpose?: string }>(dto.challengeToken);
+      if (payload?.purpose !== '2fa' || !payload.sub) throw new Error('not a 2fa challenge');
+      userId = BigInt(payload.sub);
+    } catch {
+      throw new UnauthorizedException('Your sign-in session expired. Please sign in again.');
+    }
+
+    const user = await this.prisma.users.findUnique({
+      where: { id: userId },
+      include: { user_role: { include: { roles: true } } },
+    });
+    if (!user) throw new UnauthorizedException('Bad credentials');
+    if (!user.status) {
+      throw new UnauthorizedException('User is deactivated. Please contact the administrator.');
+    }
+    const valid = await this.twoFactor.verifyForLogin(user.id, user.totp_secret, dto.code);
+    if (!valid) throw new UnauthorizedException('That code is not valid.');
+
+    return this.buildLoginSuccess(user);
+  }
+
+  /** 5-minute, single-purpose token that only completeTwoFactorLogin accepts. */
+  private signTwoFactorChallenge(userId: bigint): string {
+    return this.jwt.sign({ sub: String(userId), purpose: '2fa' }, { expiresIn: '5m' });
+  }
+
+  /** The legacy double-wrapped success envelope, shared by both login paths. */
+  private async buildLoginSuccess(user: UserWithRoles): Promise<Record<string, unknown>> {
     const token = this.signToken(user.username ?? user.email ?? '');
     await this.prisma.users.update({ where: { id: user.id }, data: { last_login: new Date() } });
 

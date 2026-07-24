@@ -8,6 +8,8 @@ import { OAuth2Controller } from './oauth2.controller';
 import { AuthService } from './auth.service';
 import { UserService } from './user.service';
 import { GoogleAuthService } from './google-auth.service';
+import { TwoFactorService } from './two-factor.service';
+import { TwoFactorController } from './two-factor.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { jwtKey } from './jwt.util';
 
@@ -24,8 +26,8 @@ import { jwtKey } from './jwt.util';
       }),
     }),
   ],
-  controllers: [AuthController, UserController, OAuth2Controller],
-  providers: [AuthService, UserService, GoogleAuthService, JwtStrategy],
-  exports: [AuthService],
+  controllers: [AuthController, UserController, OAuth2Controller, TwoFactorController],
+  providers: [AuthService, UserService, GoogleAuthService, TwoFactorService, JwtStrategy],
+  exports: [AuthService, TwoFactorService],
 })
 export class AuthModule {}

@@ -319,6 +319,10 @@ model users {
   verified                                                                      Boolean                 @db.Bit(1)
   selected_business_id                                                          BigInt?
   selected_custom_invoice_id                                                    BigInt?
+  totp_secret                                                                   String?                 @db.VarChar(255)
+  twofa_enabled                                                                 Boolean?                @default(false)
+  twofa_confirmed_at                                                            DateTime?               @db.DateTime(6)
+  user_recovery_codes                                                           user_recovery_codes[]
   bills_bills_billing_user_idTousers                                            bills[]                 @relation("bills_billing_user_idTousers")
   bills_bills_billed_user_idTousers                                             bills[]                 @relation("bills_billed_user_idTousers")
   business_members                                                              business_members[]
@@ -331,6 +335,19 @@ model users {
 
   @@index([selected_custom_invoice_id], map: "FKhr52v0vwpln0txhdlyiec5572")
   @@index([selected_business_id], map: "FKsslc5ranl2npfonvj5eh4cvfg")
+}
+
+/// One-time 2FA recovery codes. Only the bcrypt hash is stored — the plaintext
+/// is shown to the user exactly once, at setup. `used_at` burns a code.
+model user_recovery_codes {
+  id         BigInt    @id @default(autoincrement())
+  user_id    BigInt
+  code_hash  String    @db.VarChar(255)
+  used_at    DateTime? @db.DateTime(6)
+  created_at DateTime? @default(now())
+  users      users     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FK_recovery_codes_user")
+
+  @@index([user_id], map: "FK_recovery_codes_user")
 }
 
 model vendor_products {

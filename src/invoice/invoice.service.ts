@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
@@ -15,10 +15,20 @@ const CURRENCY_CODES = ['NGN', 'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 
 const invoiceInclude = { invoice_items: { include: { products: true } } } satisfies Prisma.invoicesInclude;
 type InvoiceWithItems = Prisma.invoicesGetPayload<{ include: typeof invoiceInclude }>;
 
+// Everything the PDF/email templates need: items plus the two parties.
+const invoiceWithRelationsInclude = {
+  ...invoiceInclude,
+  businesses: true,
+  customers: true,
+} satisfies Prisma.invoicesInclude;
+type InvoiceWithRelations = Prisma.invoicesGetPayload<{ include: typeof invoiceWithRelationsInclude }>;
+
 const num = (d: Prisma.Decimal | null): number | null => (d != null ? Number(d) : null);
 
 @Injectable()
 export class InvoiceService {
+  private readonly logger = new Logger(InvoiceService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
@@ -240,10 +250,10 @@ export class InvoiceService {
     }
   }
 
-  private async resolveInvoiceForOwnerOrAdmin(id: bigint, user: AuthUser): Promise<InvoiceWithItems & { customer_id: bigint }> {
+  private async resolveInvoiceForOwnerOrAdmin(id: bigint, user: AuthUser) {
     const invoice = await this.prisma.invoices.findUnique({
       where: { id },
-      include: { ...invoiceInclude, businesses: true },
+      include: invoiceWithRelationsInclude,
     });
     if (!invoice) throw new Error('Invoice not found');
     const isOwner = invoice.businesses.owner_id === user.id;
@@ -314,22 +324,42 @@ export class InvoiceService {
     if (invoice.approval_status !== 'approved') {
       return fail('Failed  to send Invoice. Invoice must be approved before it can be sent  ');
     }
+    const recipient = invoice.customers?.email;
+    if (!recipient) {
+      return fail('Failed  to send Invoice. This customer has no email address on file.');
+    }
     try {
-      const billingUser = await this.prisma.users.findUnique({ where: { id: user.id } });
-      const senderName = `${billingUser?.first_name ?? ''}${billingUser?.last_name ?? ''}`;
-      const subject = `Invoice from ${senderName} - Invoice #${invoice.invoice_number}`;
-      const rows = invoice.invoice_items
-        .map(
-          (it) =>
-            `<tr><td>${it.products.name ?? ''}</td><td>${it.quantity}</td><td>${num(it.products.unit_price) ?? ''}</td></tr>`,
-        )
-        .join('');
-      const html = `<h2>Invoice from ${invoice.businesses.business_name ?? ''}</h2>
-        <p>Invoice Number: ${invoice.invoice_number}</p>
-        <table border="1" cellpadding="6" cellspacing="0"><thead><tr><th>Product</th><th>Quantity</th><th>Price</th></tr></thead><tbody>${rows}</tbody></table>
-        <p><strong>Total Amount: ${num(invoice.total_amount)} ${invoice.currency_code ?? ''}</strong></p>
-        <p>Kindly pay within 4 business days.</p><p>© 2025 ${invoice.businesses.business_name ?? ''}</p>`;
-      await this.email.sendMail(invoice.customers.email ?? '', subject, html);
+      const model = this.toPdfModel(invoice);
+
+      // Attach the designed PDF. A render failure must not block the email, so
+      // fall back to sending the itemised HTML on its own.
+      let pdf: Buffer | null = null;
+      try {
+        pdf = await this.pdf.generateDefaultTemplatePdf(model);
+      } catch (e) {
+        this.logger.warn(`Invoice ${invoice.invoice_number}: PDF attachment skipped — ${(e as Error).message}`);
+      }
+
+      await this.email.sendInvoiceEmail({
+        to: recipient,
+        customerName: model.customer.name ?? '',
+        businessName: model.business?.name ?? 'your supplier',
+        businessEmail: model.business?.email ?? null,
+        invoiceNumber: model.invoiceNumber ?? '',
+        invoiceDate: model.invoiceDate,
+        dueDate: model.dueDate ?? null,
+        currencyCode: model.currencyCode ?? 'NGN',
+        totalAmount: model.totalAmount ?? 0,
+        amountPaid: model.amountPaid ?? 0,
+        items: model.items.map((it) => ({
+          name: it.product.name ?? 'Item',
+          quantity: it.quantity,
+          unitPrice: it.product.unitPrice ?? 0,
+          amount: it.amount ?? 0,
+        })),
+        pdf,
+      });
+
       await this.prisma.invoices.update({ where: { id: invoice.id }, data: { invoice_status: 'sent' } });
       // NOTE: legacy B2B bill side-effect (generateBillFromInvoice/appendP2Pbill) intentionally omitted.
       return ok('Invoice sent successfully', 'Email sent successfully');
@@ -338,19 +368,59 @@ export class InvoiceService {
     }
   }
 
-  private toPdfModel(inv: InvoiceWithItems & { customer_id: bigint }): InvoicePdfModel {
+  /**
+   * Build the model both the PDF and the customer email render from. Line and
+   * total amounts are computed here so the templates stay presentation-only.
+   */
+  private toPdfModel(inv: InvoiceWithRelations): InvoicePdfModel {
+    const items = inv.invoice_items.map((it) => {
+      const unitPrice = num(it.products?.unit_price) ?? 0;
+      const quantity = it.quantity ?? 0;
+      const discount = it.discount != null ? Number(it.discount) : 0;
+      const gross = unitPrice * quantity;
+      return {
+        product: { name: it.products?.name ?? null, unitPrice },
+        quantity,
+        discount,
+        gross,
+        amount: gross - (gross * discount) / 100,
+      };
+    });
+    const subtotal = items.reduce((sum, it) => sum + it.gross, 0);
+    const discountTotal = subtotal - items.reduce((sum, it) => sum + it.amount, 0);
+    const totalAmount = num(inv.total_amount) ?? 0;
+    const amountPaid = num(inv.amount_paid) ?? 0;
+
+    const customerName =
+      [inv.customers?.first_name, inv.customers?.last_name].filter(Boolean).join(' ') || null;
+
     return {
       invoiceNumber: inv.invoice_number,
-      customer: { id: inv.customer_id },
+      customer: {
+        id: inv.customer_id,
+        name: customerName,
+        email: inv.customers?.email ?? null,
+        address: inv.customers?.address ?? null,
+      },
+      business: {
+        name: inv.businesses?.business_name ?? null,
+        email: inv.businesses?.business_email ?? null,
+        address: inv.businesses?.business_address ?? null,
+        phone: inv.businesses?.business_phone ?? null,
+        taxId: inv.businesses?.tax_id ?? null,
+        paymentTermsDays: inv.businesses?.payment_terms_days ?? null,
+      },
       invoiceDate: inv.invoice_date,
+      dueDate: inv.due_date ?? null,
       invoiceStatus: inv.invoice_status,
       isPaid: inv.is_paid,
-      totalAmount: num(inv.total_amount),
+      totalAmount,
+      amountPaid,
+      balanceDue: Math.max(totalAmount - amountPaid, 0),
+      subtotal,
+      discountTotal,
       currencyCode: inv.currency_code,
-      items: inv.invoice_items.map((it) => ({
-        product: { name: it.products.name, unitPrice: num(it.products.unit_price) },
-        quantity: it.quantity,
-      })),
+      items,
     };
   }
 

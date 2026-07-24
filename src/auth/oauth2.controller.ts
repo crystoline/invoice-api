@@ -28,11 +28,23 @@ export class OAuth2Controller {
   @Public()
   @Get('login/oauth2/code/google')
   async googleCallback(@Query('code') code: string, @Res() res: Response) {
-    const base = this.config.get<string>('OAUTH_SUCCESS_REDIRECT') ?? 'http://localhost:3001';
+    // Falls back to FRONTEND_URL (the app's own origin) rather than a
+    // hardcoded port, so this works without extra config in most setups.
+    const base =
+      this.config.get<string>('OAUTH_SUCCESS_REDIRECT') ??
+      this.config.get<string>('FRONTEND_URL') ??
+      'http://localhost:3000';
     const result = await this.google.handleCallback(code);
     if (result) {
-      return res.redirect(`${base}/dashboard?jwtToken=${result.token}&userId=${result.userId}`);
+      // /oauth/callback is a dedicated frontend route that stores the token and
+      // routes onward — it cannot be a protected page, since we are not logged
+      // in until it runs.
+      const params = new URLSearchParams({
+        jwtToken: result.token,
+        userId: String(result.userId),
+      });
+      return res.redirect(`${base}/oauth/callback?${params.toString()}`);
     }
-    return res.redirect(`${base}/login`);
+    return res.redirect(`${base}/login?oauth=failed`);
   }
 }

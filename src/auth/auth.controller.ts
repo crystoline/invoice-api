@@ -36,8 +36,9 @@ export class AuthController {
   @Post('login')
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.auth.login(dto);
-    const authHeader = (result.headers as { Authorization: string[] }).Authorization[0];
-    res.setHeader('Authorization', authHeader);
+    // Absent when 2FA is on — that response carries a challenge, not a session.
+    const authHeader = (result.headers as { Authorization?: string[] } | undefined)?.Authorization?.[0];
+    if (authHeader) res.setHeader('Authorization', authHeader);
     return result;
   }
 

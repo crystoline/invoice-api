@@ -11,6 +11,8 @@ interface JwtPayload {
   email?: string;
   last_activity?: string;
   token_type?: string;
+  /** Set to '2fa' on the short-lived login challenge — never a session token. */
+  purpose?: string;
 }
 
 /**
@@ -34,6 +36,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<AuthUser> {
+    // A 2FA challenge proves only that the password step passed. It must never
+    // authenticate a request, even though its `sub` would fail the lookup below.
+    if (payload.purpose === '2fa') {
+      throw new UnauthorizedException('Invalid token');
+    }
     if (isInactive(payload.last_activity)) {
       throw new UnauthorizedException('Session expired due to inactivity');
     }
