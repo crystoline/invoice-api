@@ -9,7 +9,13 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { toSpringPage } from '../common/dto/page';
 import { formatDateAdded } from '../common/util/date.util';
 import { generateVerificationToken } from '../common/util/token.util';
-import { UpdateUserDto, ChangePasswordEmailDto, ChangePasswordDto, UpdateProfileDto, ChangeOwnPasswordDto } from './dto/auth.dto';
+import {
+  UpdateUserDto,
+  ChangePasswordEmailDto,
+  ChangePasswordDto,
+  UpdateProfileDto,
+  ChangeOwnPasswordDto,
+} from './dto/auth.dto';
 
 const withRoles = { user_role: { include: { roles: true } } } as const;
 
@@ -41,7 +47,10 @@ export class UserService {
       firstName: u.first_name,
       lastName: u.last_name,
       email: u.email,
-      userType: u.user_role.map((ur) => ({ id: ur.roles?.id, name: ur.roles?.name })),
+      userType: u.user_role.map((ur) => ({
+        id: ur.roles?.id,
+        name: ur.roles?.name,
+      })),
       status: u.status,
       verified: u.verified,
       dateAdded: u.date_added,
@@ -52,16 +61,30 @@ export class UserService {
   // #6
   async getAllUsers(): Promise<ResponseObject> {
     const users = await this.prisma.users.findMany({ include: withRoles });
-    return ok('Users fetched successfully', users.map((u) => this.mapUserDTO(u)));
+    return ok(
+      'Users fetched successfully',
+      users.map((u) => this.mapUserDTO(u)),
+    );
   }
 
   // #7
-  async getAllUsersPaginated(page: number, size: number): Promise<ResponseObject> {
+  async getAllUsersPaginated(
+    page: number,
+    size: number,
+  ): Promise<ResponseObject> {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.users.findMany({ skip: page * size, take: size }),
       this.prisma.users.count(),
     ]);
-    return ok('Paged Users fetched successfully', toSpringPage(items.map((u) => this.mapUserEntity(u)), page, size, total));
+    return ok(
+      'Paged Users fetched successfully',
+      toSpringPage(
+        items.map((u) => this.mapUserEntity(u)),
+        page,
+        size,
+        total,
+      ),
+    );
   }
 
   // #8
@@ -80,7 +103,11 @@ export class UserService {
   }
 
   // #10 — requires ROLE_ADMIN (manual check, returns 200-fail like legacy).
-  async updateUser(id: bigint, dto: UpdateUserDto, currentUser: AuthUser | null): Promise<ResponseObject> {
+  async updateUser(
+    id: bigint,
+    dto: UpdateUserDto,
+    currentUser: AuthUser | null,
+  ): Promise<ResponseObject> {
     if (!currentUser || !currentUser.roles.includes(roles_name.ROLE_ADMIN)) {
       return fail('Only an Admin User is allowed to perform this action');
     }
@@ -97,16 +124,26 @@ export class UserService {
 
       if (dto.userType && dto.userType.length > 0) {
         const roleName = this.mapUserTypeSpaced(dto.userType[0]);
-        const role = await this.prisma.roles.findFirst({ where: { name: roleName } });
+        const role = await this.prisma.roles.findFirst({
+          where: { name: roleName },
+        });
         if (role) {
           await this.prisma.$transaction([
             this.prisma.user_role.deleteMany({ where: { user_id: id } }),
-            this.prisma.user_role.create({ data: { user_id: id, role_id: role.id } }),
+            this.prisma.user_role.create({
+              data: { user_id: id, role_id: role.id },
+            }),
           ]);
         }
       }
-      const updated = await this.prisma.users.findUnique({ where: { id }, include: withRoles });
-      return ok('User updated successfully', updated ? this.mapUserDTO(updated) : null);
+      const updated = await this.prisma.users.findUnique({
+        where: { id },
+        include: withRoles,
+      });
+      return ok(
+        'User updated successfully',
+        updated ? this.mapUserDTO(updated) : null,
+      );
     } catch (e) {
       return fail(`Failed to update user ${(e as Error).message}`);
     }
@@ -144,13 +181,22 @@ export class UserService {
   // #13
   async getLoggedInUser(currentUser: AuthUser | null): Promise<ResponseObject> {
     if (!currentUser) return ok('User fetched successfully.', null);
-    const user = await this.prisma.users.findUnique({ where: { id: currentUser.id } });
-    return ok('User fetched successfully.', user ? this.mapUserEntity(user) : null);
+    const user = await this.prisma.users.findUnique({
+      where: { id: currentUser.id },
+    });
+    return ok(
+      'User fetched successfully.',
+      user ? this.mapUserEntity(user) : null,
+    );
   }
 
   // #14
-  async confirmEmailForPasswordReset(dto: ChangePasswordEmailDto): Promise<ResponseObject> {
-    const user = await this.prisma.users.findFirst({ where: { email: dto.email } });
+  async confirmEmailForPasswordReset(
+    dto: ChangePasswordEmailDto,
+  ): Promise<ResponseObject> {
+    const user = await this.prisma.users.findFirst({
+      where: { email: dto.email },
+    });
     if (!user) return fail('User with email not found.');
     try {
       const token = generateVerificationToken();
@@ -159,13 +205,16 @@ export class UserService {
         where: { id: user.id },
         data: { verification_token: token, token_expiry_time: expiry },
       });
-      const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+      const frontendUrl =
+        this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
       await this.email.sendPasswordEmailConfirmation(
         user.email ?? '',
         user.first_name ?? '',
         `${frontendUrl}/user/confirm-password-reset?token=${token}`,
       );
-      return ok('Click the confirmation link sent to your email to reset your password.');
+      return ok(
+        'Click the confirmation link sent to your email to reset your password.',
+      );
     } catch (e) {
       return fail(`Failed to confirm user email ${(e as Error).message}`);
     }
@@ -173,13 +222,21 @@ export class UserService {
 
   // #15 — the fixed reset flow: token → user → set BCrypt(newPassword) → clear token.
   async changePassword(dto: ChangePasswordDto): Promise<ResponseObject> {
-    if (!dto.token) return fail('Error trying to  change password  missing token');
-    const user = await this.prisma.users.findFirst({ where: { verification_token: dto.token } });
-    if (!user) return fail('Error trying to  change password  invalid or expired token');
-    if (dto.email && user.email !== dto.email) return fail('Error trying to  change password  email mismatch');
-    const valid = user.token_expiry_time ? new Date() < user.token_expiry_time : false;
+    if (!dto.token)
+      return fail('Error trying to  change password  missing token');
+    const user = await this.prisma.users.findFirst({
+      where: { verification_token: dto.token },
+    });
+    if (!user)
+      return fail('Error trying to  change password  invalid or expired token');
+    if (dto.email && user.email !== dto.email)
+      return fail('Error trying to  change password  email mismatch');
+    const valid = user.token_expiry_time
+      ? new Date() < user.token_expiry_time
+      : false;
     if (!valid) return fail('Error trying to  change password  token expired');
-    if (dto.newPassword !== dto.confirmNewPassword) return fail('Error trying to  change password  passwords do not match');
+    if (dto.newPassword !== dto.confirmNewPassword)
+      return fail('Error trying to  change password  passwords do not match');
     const hashed = await bcrypt.hash(dto.newPassword ?? '', 10);
     await this.prisma.users.update({
       where: { id: user.id },
@@ -189,7 +246,10 @@ export class UserService {
   }
 
   // Self-service — update the current user's own profile.
-  async updateOwnProfile(id: bigint, dto: UpdateProfileDto): Promise<ResponseObject> {
+  async updateOwnProfile(
+    id: bigint,
+    dto: UpdateProfileDto,
+  ): Promise<ResponseObject> {
     try {
       const u = await this.prisma.users.update({
         where: { id },
@@ -210,11 +270,17 @@ export class UserService {
   }
 
   // Self-service — change the current user's password (knowing the current one).
-  async changeOwnPassword(id: bigint, dto: ChangeOwnPasswordDto): Promise<ResponseObject> {
+  async changeOwnPassword(
+    id: bigint,
+    dto: ChangeOwnPasswordDto,
+  ): Promise<ResponseObject> {
     try {
       const user = await this.prisma.users.findUnique({ where: { id } });
       if (!user) return fail('User not found');
-      const match = await bcrypt.compare(dto.currentPassword, user.password ?? '');
+      const match = await bcrypt.compare(
+        dto.currentPassword,
+        user.password ?? '',
+      );
       if (!match) return fail('Current password is incorrect');
       await this.prisma.users.update({
         where: { id },
@@ -233,9 +299,13 @@ export class UserService {
 
   // #17 — seed a known admin (devChux). Hardened to SUPER_ADMIN at the controller.
   async seedDb(): Promise<users | null> {
-    const existing = await this.prisma.users.findFirst({ where: { email: 'devChux@gmail.com' } });
+    const existing = await this.prisma.users.findFirst({
+      where: { email: 'devChux@gmail.com' },
+    });
     if (existing) return null;
-    const role = await this.prisma.roles.findFirst({ where: { name: roles_name.ROLE_ADMIN } });
+    const role = await this.prisma.roles.findFirst({
+      where: { name: roles_name.ROLE_ADMIN },
+    });
     const hashed = await bcrypt.hash('password1234', 10);
     return this.prisma.users.create({
       data: {
@@ -247,7 +317,9 @@ export class UserService {
         status: true,
         verified: false,
         date_added: formatDateAdded(),
-        ...(role ? { user_role: { create: [{ roles: { connect: { id: role.id } } }] } } : {}),
+        ...(role
+          ? { user_role: { create: [{ roles: { connect: { id: role.id } } }] } }
+          : {}),
       },
     });
   }

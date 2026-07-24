@@ -28,8 +28,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const res = exception.getResponse();
-      message = typeof res === 'string' ? res : (res as Record<string, unknown>).message ?? res;
-    } else if (exception instanceof Error && /Cannot convert .+ to a BigInt/i.test(exception.message)) {
+      message =
+        typeof res === 'string'
+          ? res
+          : ((res as Record<string, unknown>).message ?? res);
+    } else if (
+      exception instanceof Error &&
+      /Cannot convert .+ to a BigInt/i.test(exception.message)
+    ) {
       // A malformed id path param (e.g. "undefined"/"NaN") reached a BigInt() conversion.
       // Treat as a client error rather than crashing with a 500.
       status = HttpStatus.BAD_REQUEST;

@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../common/enums/role.enum';
@@ -52,7 +62,13 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('size') size?: string,
   ) {
-    return this.admin.listUsers(search, role, bool(status), int(page, 0), int(size, 20));
+    return this.admin.listUsers(
+      search,
+      role,
+      bool(status),
+      int(page, 0),
+      int(size, 20),
+    );
   }
 
   @Post('users')
@@ -88,7 +104,12 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('size') size?: string,
   ) {
-    return this.admin.listBusinesses(search, bool(status), int(page, 0), int(size, 20));
+    return this.admin.listBusinesses(
+      search,
+      bool(status),
+      int(page, 0),
+      int(size, 20),
+    );
   }
 
   @Get('businesses/:id')
@@ -114,7 +135,12 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('size') size?: string,
   ) {
-    return this.admin.listSubscriptions(status, planId, int(page, 0), int(size, 20));
+    return this.admin.listSubscriptions(
+      status,
+      planId,
+      int(page, 0),
+      int(size, 20),
+    );
   }
 
   // --- plans -------------------------------------------------------------

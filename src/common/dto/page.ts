@@ -3,7 +3,12 @@
  * stay contract-compatible with the frontend (react-paginate reads
  * totalPages/totalElements/number).
  */
-export function toSpringPage<T>(content: T[], page: number, size: number, totalElements: number) {
+export function toSpringPage<T>(
+  content: T[],
+  page: number,
+  size: number,
+  totalElements: number,
+) {
   const totalPages = size > 0 ? Math.ceil(totalElements / size) : 0;
   const sort = { sorted: false, unsorted: true, empty: true };
   return {

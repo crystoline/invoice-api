@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 
 export class InvoiceItemProductDto {
   @IsOptional() @IsString() name?: string;
@@ -11,7 +18,10 @@ export class InvoiceItemProductDto {
 export class InvoiceItemRequestDto {
   @IsOptional() @IsNumber() productId?: number;
   @IsOptional() @IsNumber() unitPrice?: number; // reprice trigger when productId set
-  @IsOptional() @ValidateNested() @Type(() => InvoiceItemProductDto) product?: InvoiceItemProductDto;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InvoiceItemProductDto)
+  product?: InvoiceItemProductDto;
   @IsOptional() @IsNumber() discount?: number; // whole-number percent 0..100
   @IsOptional() @IsNumber() quantity?: number;
 }
@@ -24,7 +34,10 @@ export class InvoiceRequestDto {
   @IsOptional() @IsBoolean() recurring?: boolean; // Jackson key alias
   @IsOptional() @IsString() frequency?: string;
   @IsOptional() @IsString() currencyCode?: string;
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => InvoiceItemRequestDto)
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InvoiceItemRequestDto)
   items?: InvoiceItemRequestDto[];
 }
 

@@ -1,6 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { CustomFieldService } from './custom-field.service';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 import { InvoiceConfigRequestDto } from './dto/custom-field.dto';
 
 /**
@@ -28,7 +39,11 @@ export class CustomFieldController {
   }
 
   @Put(':configId')
-  update(@Param('configId') configId: string, @Body() dto: InvoiceConfigRequestDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Param('configId') configId: string,
+    @Body() dto: InvoiceConfigRequestDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.service.update(BigInt(configId), dto, user.id);
   }
 

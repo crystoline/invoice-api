@@ -40,10 +40,14 @@ export class TwoFactorService {
 
   /** Current 2FA state for the settings screen. */
   async status(user: AuthUser): Promise<ResponseObject> {
-    const dbUser = await this.prisma.users.findUnique({ where: { id: user.id } });
+    const dbUser = await this.prisma.users.findUnique({
+      where: { id: user.id },
+    });
     if (!dbUser) return fail('User not found');
     const remaining = dbUser.twofa_enabled
-      ? await this.prisma.user_recovery_codes.count({ where: { user_id: dbUser.id, used_at: null } })
+      ? await this.prisma.user_recovery_codes.count({
+          where: { user_id: dbUser.id, used_at: null },
+        })
       : 0;
     return ok('Two-factor status fetched', {
       enabled: !!dbUser.twofa_enabled,
@@ -55,10 +59,14 @@ export class TwoFactorService {
 
   /** Step 1 — mint a pending secret and hand back a QR to scan. */
   async beginSetup(user: AuthUser): Promise<ResponseObject> {
-    const dbUser = await this.prisma.users.findUnique({ where: { id: user.id } });
+    const dbUser = await this.prisma.users.findUnique({
+      where: { id: user.id },
+    });
     if (!dbUser) return fail('User not found');
     if (dbUser.twofa_enabled) {
-      return fail('Two-factor authentication is already enabled. Turn it off first to re-enrol.');
+      return fail(
+        'Two-factor authentication is already enabled. Turn it off first to re-enrol.',
+      );
     }
 
     const secret = generateSecret();
@@ -68,7 +76,11 @@ export class TwoFactorService {
 
     await this.prisma.users.update({
       where: { id: dbUser.id },
-      data: { totp_secret: secret, twofa_enabled: false, twofa_confirmed_at: null },
+      data: {
+        totp_secret: secret,
+        twofa_enabled: false,
+        twofa_confirmed_at: null,
+      },
     });
 
     return ok('Scan the QR code with your authenticator app', {
@@ -83,12 +95,17 @@ export class TwoFactorService {
 
   /** Step 2 — verify the first code, switch 2FA on, and return the recovery codes once. */
   async confirmSetup(user: AuthUser, code: string): Promise<ResponseObject> {
-    const dbUser = await this.prisma.users.findUnique({ where: { id: user.id } });
+    const dbUser = await this.prisma.users.findUnique({
+      where: { id: user.id },
+    });
     if (!dbUser) return fail('User not found');
-    if (dbUser.twofa_enabled) return fail('Two-factor authentication is already enabled.');
+    if (dbUser.twofa_enabled)
+      return fail('Two-factor authentication is already enabled.');
     if (!dbUser.totp_secret) return fail('Start two-factor setup first.');
     if (!this.verifyTotp(dbUser.totp_secret, code)) {
-      return fail('That code is not valid. Check your authenticator app and try again.');
+      return fail(
+        'That code is not valid. Check your authenticator app and try again.',
+      );
     }
 
     const codes = this.generateRecoveryCodes();
@@ -96,7 +113,9 @@ export class TwoFactorService {
     const hashes = await Promise.all(codes.map((c) => bcrypt.hash(c, 10)));
 
     await this.prisma.$transaction([
-      this.prisma.user_recovery_codes.deleteMany({ where: { user_id: dbUser.id } }),
+      this.prisma.user_recovery_codes.deleteMany({
+        where: { user_id: dbUser.id },
+      }),
       this.prisma.user_recovery_codes.createMany({
         data: hashes.map((code_hash) => ({ user_id: dbUser.id, code_hash })),
       }),
@@ -114,33 +133,51 @@ export class TwoFactorService {
 
   /** Turn 2FA off. Requires a current code (or a recovery code) to prove possession. */
   async disable(user: AuthUser, code: string): Promise<ResponseObject> {
-    const dbUser = await this.prisma.users.findUnique({ where: { id: user.id } });
+    const dbUser = await this.prisma.users.findUnique({
+      where: { id: user.id },
+    });
     if (!dbUser) return fail('User not found');
-    if (!dbUser.twofa_enabled) return fail('Two-factor authentication is not enabled.');
+    if (!dbUser.twofa_enabled)
+      return fail('Two-factor authentication is not enabled.');
     if (!(await this.verifyAny(dbUser.id, dbUser.totp_secret, code))) {
       return fail('That code is not valid.');
     }
     await this.prisma.$transaction([
-      this.prisma.user_recovery_codes.deleteMany({ where: { user_id: dbUser.id } }),
+      this.prisma.user_recovery_codes.deleteMany({
+        where: { user_id: dbUser.id },
+      }),
       this.prisma.users.update({
         where: { id: dbUser.id },
-        data: { totp_secret: null, twofa_enabled: false, twofa_confirmed_at: null },
+        data: {
+          totp_secret: null,
+          twofa_enabled: false,
+          twofa_confirmed_at: null,
+        },
       }),
     ]);
     return ok('Two-factor authentication has been turned off');
   }
 
   /** Replace the recovery codes, invalidating any unused ones. Shown once. */
-  async regenerateRecoveryCodes(user: AuthUser, code: string): Promise<ResponseObject> {
-    const dbUser = await this.prisma.users.findUnique({ where: { id: user.id } });
+  async regenerateRecoveryCodes(
+    user: AuthUser,
+    code: string,
+  ): Promise<ResponseObject> {
+    const dbUser = await this.prisma.users.findUnique({
+      where: { id: user.id },
+    });
     if (!dbUser) return fail('User not found');
-    if (!dbUser.twofa_enabled) return fail('Two-factor authentication is not enabled.');
-    if (!this.verifyTotp(dbUser.totp_secret, code)) return fail('That code is not valid.');
+    if (!dbUser.twofa_enabled)
+      return fail('Two-factor authentication is not enabled.');
+    if (!this.verifyTotp(dbUser.totp_secret, code))
+      return fail('That code is not valid.');
 
     const codes = this.generateRecoveryCodes();
     const hashes = await Promise.all(codes.map((c) => bcrypt.hash(c, 10)));
     await this.prisma.$transaction([
-      this.prisma.user_recovery_codes.deleteMany({ where: { user_id: dbUser.id } }),
+      this.prisma.user_recovery_codes.deleteMany({
+        where: { user_id: dbUser.id },
+      }),
       this.prisma.user_recovery_codes.createMany({
         data: hashes.map((code_hash) => ({ user_id: dbUser.id, code_hash })),
       }),
@@ -155,13 +192,21 @@ export class TwoFactorService {
    * Login-time check: a TOTP code, or a one-time recovery code (which is burned
    * on use). Used by AuthService after the password step.
    */
-  async verifyForLogin(userId: bigint, secret: string | null, code: string): Promise<boolean> {
+  async verifyForLogin(
+    userId: bigint,
+    secret: string | null,
+    code: string,
+  ): Promise<boolean> {
     return this.verifyAny(userId, secret, code);
   }
 
   // ---- internals -----------------------------------------------------------
 
-  private async verifyAny(userId: bigint, secret: string | null, code: string): Promise<boolean> {
+  private async verifyAny(
+    userId: bigint,
+    secret: string | null,
+    code: string,
+  ): Promise<boolean> {
     if (this.verifyTotp(secret, code)) return true;
     return this.consumeRecoveryCode(userId, code);
   }
@@ -183,8 +228,13 @@ export class TwoFactorService {
   }
 
   /** Burn a matching unused recovery code. Returns true if one matched. */
-  private async consumeRecoveryCode(userId: bigint, code: string): Promise<boolean> {
-    const candidate = String(code ?? '').trim().toUpperCase();
+  private async consumeRecoveryCode(
+    userId: bigint,
+    code: string,
+  ): Promise<boolean> {
+    const candidate = String(code ?? '')
+      .trim()
+      .toUpperCase();
     if (!candidate) return false;
     const rows = await this.prisma.user_recovery_codes.findMany({
       where: { user_id: userId, used_at: null },

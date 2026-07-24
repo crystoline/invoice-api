@@ -39,7 +39,10 @@ export class CustomFieldService {
     };
   }
 
-  async create(dto: InvoiceConfigRequestDto, userId: bigint): Promise<ResponseObject> {
+  async create(
+    dto: InvoiceConfigRequestDto,
+    userId: bigint,
+  ): Promise<ResponseObject> {
     const created = await this.prisma.invoice_custom_fields.create({
       data: { ...this.toData(dto), user_id: userId },
     });
@@ -48,28 +51,47 @@ export class CustomFieldService {
 
   async getAllForOwner(userId: bigint): Promise<ResponseObject> {
     try {
-      const items = await this.prisma.invoice_custom_fields.findMany({ where: { user_id: userId } });
-      return ok('Custom configs fetched successfully', items.map((c) => this.map(c)));
+      const items = await this.prisma.invoice_custom_fields.findMany({
+        where: { user_id: userId },
+      });
+      return ok(
+        'Custom configs fetched successfully',
+        items.map((c) => this.map(c)),
+      );
     } catch (e) {
-      return fail(`Failed to fetch Custom configs for user ${(e as Error).message}`);
+      return fail(
+        `Failed to fetch Custom configs for user ${(e as Error).message}`,
+      );
     }
   }
 
   async getById(configId: bigint, userId: bigint): Promise<ResponseObject> {
     try {
-      const config = await this.prisma.invoice_custom_fields.findUnique({ where: { id: configId } });
+      const config = await this.prisma.invoice_custom_fields.findUnique({
+        where: { id: configId },
+      });
       if (!config) throw new Error('not found');
       if (config.user_id !== userId) {
-        return fail('Failed to fetch Custom configs for user, configuration belongs to a different user ');
+        return fail(
+          'Failed to fetch Custom configs for user, configuration belongs to a different user ',
+        );
       }
       return ok('Custom config fetched successfully', this.map(config));
     } catch (e) {
-      return fail(`Failed to fetch Custom config for user ${(e as Error).message}`);
+      return fail(
+        `Failed to fetch Custom config for user ${(e as Error).message}`,
+      );
     }
   }
 
-  async update(configId: bigint, dto: InvoiceConfigRequestDto, userId: bigint): Promise<ResponseObject> {
-    const config = await this.prisma.invoice_custom_fields.findUnique({ where: { id: configId } });
+  async update(
+    configId: bigint,
+    dto: InvoiceConfigRequestDto,
+    userId: bigint,
+  ): Promise<ResponseObject> {
+    const config = await this.prisma.invoice_custom_fields.findUnique({
+      where: { id: configId },
+    });
     if (!config || config.user_id !== userId) {
       return fail('Cannot update, configuration belongs to a different user ');
     }
@@ -81,7 +103,9 @@ export class CustomFieldService {
   }
 
   async remove(configId: bigint, userId: bigint): Promise<ResponseObject> {
-    const config = await this.prisma.invoice_custom_fields.findUnique({ where: { id: configId } });
+    const config = await this.prisma.invoice_custom_fields.findUnique({
+      where: { id: configId },
+    });
     if (!config || config.user_id !== userId) {
       return fail('Cannot delete, configuration belongs to a different user ');
     }

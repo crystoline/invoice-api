@@ -32,7 +32,9 @@ export class CustomerPortalService {
 
   /** Resolve + validate a portal token, returning its invoice_id or null. */
   private async resolveInvoiceId(token: string): Promise<bigint | null> {
-    const row = await this.prisma.portal_tokens.findUnique({ where: { token } });
+    const row = await this.prisma.portal_tokens.findUnique({
+      where: { token },
+    });
     if (!row || row.used) return null;
     if (row.expires_at && row.expires_at.getTime() < Date.now()) return null;
     return row.invoice_id ?? null;
@@ -57,11 +59,15 @@ export class CustomerPortalService {
       currency: invoice.currency_code,
       status: invoice.invoice_status,
       businessName: invoice.businesses.business_name,
-      customerName: `${invoice.customers.first_name ?? ''} ${invoice.customers.last_name ?? ''}`.trim(),
+      customerName:
+        `${invoice.customers.first_name ?? ''} ${invoice.customers.last_name ?? ''}`.trim(),
       items: invoice.invoice_items.map((it) => ({
         name: it.products.name,
         quantity: it.quantity,
-        unitPrice: it.products.unit_price != null ? Number(it.products.unit_price) : null,
+        unitPrice:
+          it.products.unit_price != null
+            ? Number(it.products.unit_price)
+            : null,
       })),
     };
     return ok('Invoice fetched successfully', view);
@@ -77,23 +83,35 @@ export class CustomerPortalService {
     });
     if (!invoice) return fail('Invalid or expired link');
 
-    const secretKey = this.config.get<string>('PAYSTACK_SECRET_KEY') ?? process.env.PAYSTACK_SECRET_KEY;
+    const secretKey =
+      this.config.get<string>('PAYSTACK_SECRET_KEY') ??
+      process.env.PAYSTACK_SECRET_KEY;
     if (!secretKey) return fail('Payment is not configured');
     const frontendUrl =
-      this.config.get<string>('FRONTEND_URL') ?? process.env.FRONTEND_URL ?? 'http://localhost:3000';
+      this.config.get<string>('FRONTEND_URL') ??
+      process.env.FRONTEND_URL ??
+      'http://localhost:3000';
 
     try {
-      const res = await fetch('https://api.paystack.co/transaction/initialize', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${secretKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: invoice.customers.email ?? '',
-          amount: Math.round(Number(invoice.total_amount) * 100),
-          callback_url: `${frontendUrl}/payment/verify`,
-        }),
-      });
+      const res = await fetch(
+        'https://api.paystack.co/transaction/initialize',
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${secretKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: invoice.customers.email ?? '',
+            amount: Math.round(Number(invoice.total_amount) * 100),
+            callback_url: `${frontendUrl}/payment/verify`,
+          }),
+        },
+      );
       if (!res.ok) return fail('Failed to initialize payment');
-      const json = (await res.json()) as { data?: { authorization_url?: string } };
+      const json = (await res.json()) as {
+        data?: { authorization_url?: string };
+      };
       const authorizationUrl = json.data?.authorization_url;
       if (!authorizationUrl) return fail('Failed to initialize payment');
       return ok('Payment initialized successfully', { authorizationUrl });

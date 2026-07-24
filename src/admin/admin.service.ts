@@ -12,11 +12,15 @@ import {
 } from './dto/admin.dto';
 
 // --- shared helpers (mirroring dashboard.service conventions) --------------
-const n = (d: Prisma.Decimal | null | undefined): number => (d != null ? Number(d) : 0);
-const num = (v: number | null | undefined): number | null => (v == null ? null : Number(v));
-const nb = (v: bigint | null | undefined): number => (v != null ? Number(v) : 0);
+const n = (d: Prisma.Decimal | null | undefined): number =>
+  d != null ? Number(d) : 0;
+const num = (v: number | null | undefined): number | null =>
+  v == null ? null : Number(v);
+const nb = (v: bigint | null | undefined): number =>
+  v != null ? Number(v) : 0;
 const pad = (x: number): string => String(x).padStart(2, '0');
-const monthKey = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+const monthKey = (d: Date): string =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 const DEFAULT_DURATION_DAYS = 30;
 
 /** Parse the legacy string `date_added` ("yyyy-MM-dd HH:mm:ss") defensively. */
@@ -26,8 +30,19 @@ const parseDateAdded = (s: string | null | undefined): Date | null => {
   return isNaN(d.getTime()) ? null : d;
 };
 
-type PageShape<T> = { content: T[]; page: number; size: number; totalElements: number; totalPages: number };
-const pageOf = <T>(content: T[], page: number, size: number, totalElements: number): PageShape<T> => ({
+type PageShape<T> = {
+  content: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+const pageOf = <T>(
+  content: T[],
+  page: number,
+  size: number,
+  totalElements: number,
+): PageShape<T> => ({
   content,
   page,
   size,
@@ -39,8 +54,9 @@ const usersWithRole = {
   user_role: { include: { roles: true } },
 } satisfies Prisma.usersInclude;
 
-const primaryRole = (u: { user_role: { roles: { name: roles_name | null } | null }[] }): string | null =>
-  u.user_role?.[0]?.roles?.name ?? null;
+const primaryRole = (u: {
+  user_role: { roles: { name: roles_name | null } | null }[];
+}): string | null => u.user_role?.[0]?.roles?.name ?? null;
 
 @Injectable()
 export class AdminService {
@@ -60,19 +76,33 @@ export class AdminService {
         statusGroups,
         planGroups,
       ] = await Promise.all([
-        this.prisma.users.findMany({ select: { date_added: true, verified: true } }),
+        this.prisma.users.findMany({
+          select: { date_added: true, verified: true },
+        }),
         this.prisma.businesses.count(),
         this.prisma.businesses.count({ where: { is_active: true } }),
         this.prisma.invoices.findMany({
-          select: { total_amount: true, amount_paid: true, is_paid: true, paid_date: true, invoice_date: true },
+          select: {
+            total_amount: true,
+            amount_paid: true,
+            is_paid: true,
+            paid_date: true,
+            invoice_date: true,
+          },
         }),
         this.prisma.subscriptions.findMany({
           where: { status: { in: ['ACTIVE', 'TRIAL'] } },
           include: { plans: true },
         }),
         this.prisma.plans.findMany(),
-        this.prisma.subscriptions.groupBy({ by: ['status'], _count: { _all: true } }),
-        this.prisma.subscriptions.groupBy({ by: ['plan_id'], _count: { _all: true } }),
+        this.prisma.subscriptions.groupBy({
+          by: ['status'],
+          _count: { _all: true },
+        }),
+        this.prisma.subscriptions.groupBy({
+          by: ['plan_id'],
+          _count: { _all: true },
+        }),
       ]);
 
       const usersTotal = userRows.length;
@@ -87,7 +117,9 @@ export class AdminService {
         collected += paid;
         if (paid > 0) {
           const d = i.paid_date ?? i.invoice_date;
-          if (d) revByMonth[monthKey(new Date(d))] = (revByMonth[monthKey(new Date(d))] || 0) + paid;
+          if (d)
+            revByMonth[monthKey(new Date(d))] =
+              (revByMonth[monthKey(new Date(d))] || 0) + paid;
         }
       }
       const outstanding = invoiced - collected;
@@ -96,7 +128,8 @@ export class AdminService {
       const usersMonthMap: Record<string, number> = {};
       for (const u of userRows) {
         const d = parseDateAdded(u.date_added);
-        if (d) usersMonthMap[monthKey(d)] = (usersMonthMap[monthKey(d)] || 0) + 1;
+        if (d)
+          usersMonthMap[monthKey(d)] = (usersMonthMap[monthKey(d)] || 0) + 1;
       }
       const usersByMonth: { month: string; count: number }[] = [];
       const revenueByMonth: { month: string; collected: number }[] = [];
@@ -107,8 +140,13 @@ export class AdminService {
       }
 
       // mrr = sum of monthly NGN price over ACTIVE/TRIAL subscriptions
-      const mrr = subs.reduce((s, sub) => s + (sub.plans?.price_ngn_monthly ?? 0), 0);
-      const activeSubscriptions = subs.filter((s) => s.status === 'ACTIVE').length;
+      const mrr = subs.reduce(
+        (s, sub) => s + (sub.plans?.price_ngn_monthly ?? 0),
+        0,
+      );
+      const activeSubscriptions = subs.filter(
+        (s) => s.status === 'ACTIVE',
+      ).length;
 
       const statusCount = (st: string): number =>
         statusGroups.find((g) => g.status === st)?._count._all ?? 0;
@@ -119,7 +157,9 @@ export class AdminService {
         cancelled: statusCount('CANCELLED'),
       };
 
-      const planNameById = new Map(planRows.map((p) => [p.id.toString(), p.display_name ?? p.name]));
+      const planNameById = new Map(
+        planRows.map((p) => [p.id.toString(), p.display_name ?? p.name]),
+      );
       const planDistribution = planGroups.map((g) => ({
         plan: planNameById.get(g.plan_id.toString()) ?? 'Unknown',
         count: g._count._all,
@@ -165,7 +205,8 @@ export class AdminService {
           { last_name: { contains: search } },
         ];
       }
-      if (role) where.user_role = { some: { roles: { name: role as roles_name } } };
+      if (role)
+        where.user_role = { some: { roles: { name: role as roles_name } } };
       if (status !== undefined) where.status = status;
 
       const [rows, total] = await this.prisma.$transaction([
@@ -193,7 +234,10 @@ export class AdminService {
         businessCount: u._count.businesses_businesses_owner_idTousers,
         dateAdded: u.date_added,
       }));
-      return ok('Users fetched successfully', pageOf(content, page, size, total));
+      return ok(
+        'Users fetched successfully',
+        pageOf(content, page, size, total),
+      );
     } catch (e) {
       return fail(`Failed to fetch users: ${(e as Error).message}`);
     }
@@ -204,7 +248,10 @@ export class AdminService {
     try {
       const user = await this.prisma.users.findUnique({ where: { id } });
       if (!user) return fail('User not found');
-      await this.prisma.users.update({ where: { id }, data: { status: active } });
+      await this.prisma.users.update({
+        where: { id },
+        data: { status: active },
+      });
       return ok(`User status set to ${active}`);
     } catch (e) {
       return fail(`Failed to update user status: ${(e as Error).message}`);
@@ -216,7 +263,10 @@ export class AdminService {
     try {
       const user = await this.prisma.users.findUnique({ where: { id } });
       if (!user) return fail('User not found');
-      await this.prisma.users.update({ where: { id }, data: { verified: true } });
+      await this.prisma.users.update({
+        where: { id },
+        data: { verified: true },
+      });
       return ok('User verified successfully');
     } catch (e) {
       return fail(`Failed to verify user: ${(e as Error).message}`);
@@ -224,16 +274,23 @@ export class AdminService {
   }
 
   // 5. PUT /admin/users/:id/role -------------------------------------------
-  async setUserRole(id: bigint, dto: UpdateUserRoleDto): Promise<ResponseObject> {
+  async setUserRole(
+    id: bigint,
+    dto: UpdateUserRoleDto,
+  ): Promise<ResponseObject> {
     try {
       const user = await this.prisma.users.findUnique({ where: { id } });
       if (!user) return fail('User not found');
-      const role = await this.prisma.roles.findFirst({ where: { name: dto.role as roles_name } });
+      const role = await this.prisma.roles.findFirst({
+        where: { name: dto.role as roles_name },
+      });
       if (!role) return fail(`Role ${dto.role} not found`);
       // Replace all existing role links with the single new one.
       await this.prisma.$transaction([
         this.prisma.user_role.deleteMany({ where: { user_id: id } }),
-        this.prisma.user_role.create({ data: { user_id: id, role_id: role.id } }),
+        this.prisma.user_role.create({
+          data: { user_id: id, role_id: role.id },
+        }),
       ]);
       return ok(`User role updated to ${dto.role}`);
     } catch (e) {
@@ -252,18 +309,24 @@ export class AdminService {
       await this.prisma.users.delete({ where: { id } });
       return ok('User deleted successfully');
     } catch (e) {
-      return fail(`Failed to delete user (they may still own businesses or subscriptions): ${(e as Error).message}`);
+      return fail(
+        `Failed to delete user (they may still own businesses or subscriptions): ${(e as Error).message}`,
+      );
     }
   }
 
   // 7. POST /admin/users ----------------------------------------------------
   async createUser(dto: AdminCreateUserDto): Promise<ResponseObject> {
     try {
-      const existing = await this.prisma.users.findFirst({ where: { email: dto.email } });
+      const existing = await this.prisma.users.findFirst({
+        where: { email: dto.email },
+      });
       if (existing) return fail('Email already exists.');
 
       const roleName = (dto.role ?? roles_name.ROLE_ADMIN) as roles_name;
-      const role = await this.prisma.roles.findFirst({ where: { name: roleName } });
+      const role = await this.prisma.roles.findFirst({
+        where: { name: roleName },
+      });
       if (!role) return fail(`Role ${roleName} not found`);
 
       const hashed = await bcrypt.hash(dto.password ?? '', 10);
@@ -306,7 +369,10 @@ export class AdminService {
     try {
       const where: Prisma.businessesWhereInput = {};
       if (search) {
-        where.OR = [{ business_name: { contains: search } }, { business_email: { contains: search } }];
+        where.OR = [
+          { business_name: { contains: search } },
+          { business_email: { contains: search } },
+        ];
       }
       if (status !== undefined) where.is_active = status;
 
@@ -333,7 +399,9 @@ export class AdminService {
             _sum: { amount_paid: true },
           })
         : [];
-      const revById = new Map(revGroups.map((g) => [g.business_id.toString(), n(g._sum.amount_paid)]));
+      const revById = new Map(
+        revGroups.map((g) => [g.business_id.toString(), n(g._sum.amount_paid)]),
+      );
 
       const content = rows.map((b) => {
         const owner = b.users_businesses_owner_idTousers;
@@ -342,7 +410,9 @@ export class AdminService {
           businessName: b.business_name,
           businessEmail: b.business_email,
           businessAddress: b.business_address,
-          ownerName: owner ? `${owner.first_name ?? ''} ${owner.last_name ?? ''}`.trim() : null,
+          ownerName: owner
+            ? `${owner.first_name ?? ''} ${owner.last_name ?? ''}`.trim()
+            : null,
           ownerEmail: owner?.email ?? null,
           isActive: !!b.is_active,
           invoiceCount: b._count.invoices,
@@ -350,7 +420,10 @@ export class AdminService {
           defaultCurrency: b.default_currency,
         };
       });
-      return ok('Businesses fetched successfully', pageOf(content, page, size, total));
+      return ok(
+        'Businesses fetched successfully',
+        pageOf(content, page, size, total),
+      );
     } catch (e) {
       return fail(`Failed to fetch businesses: ${(e as Error).message}`);
     }
@@ -390,7 +463,9 @@ export class AdminService {
         businessAddress: biz.business_address,
         businessPhone: biz.business_phone,
         taxId: biz.tax_id,
-        ownerName: owner ? `${owner.first_name ?? ''} ${owner.last_name ?? ''}`.trim() : null,
+        ownerName: owner
+          ? `${owner.first_name ?? ''} ${owner.last_name ?? ''}`.trim()
+          : null,
         ownerEmail: owner?.email ?? null,
         isActive: !!biz.is_active,
         defaultCurrency: biz.default_currency,
@@ -405,11 +480,17 @@ export class AdminService {
   }
 
   // 10. PATCH /admin/businesses/:id/status ---------------------------------
-  async setBusinessStatus(id: bigint, active: boolean): Promise<ResponseObject> {
+  async setBusinessStatus(
+    id: bigint,
+    active: boolean,
+  ): Promise<ResponseObject> {
     try {
       const biz = await this.prisma.businesses.findUnique({ where: { id } });
       if (!biz) return fail('Business not found');
-      await this.prisma.businesses.update({ where: { id }, data: { is_active: active } });
+      await this.prisma.businesses.update({
+        where: { id },
+        data: { is_active: active },
+      });
       return ok(`Business status set to ${active}`);
     } catch (e) {
       return fail(`Failed to update business status: ${(e as Error).message}`);
@@ -426,7 +507,9 @@ export class AdminService {
       await this.prisma.businesses.delete({ where: { id } });
       return ok('Business deleted successfully');
     } catch (e) {
-      return fail(`Failed to delete business (it may still have invoices, customers or other records): ${(e as Error).message}`);
+      return fail(
+        `Failed to delete business (it may still have invoices, customers or other records): ${(e as Error).message}`,
+      );
     }
   }
 
@@ -455,7 +538,9 @@ export class AdminService {
 
       const content = rows.map((s) => ({
         id: nb(s.id),
-        userName: s.users ? `${s.users.first_name ?? ''} ${s.users.last_name ?? ''}`.trim() : null,
+        userName: s.users
+          ? `${s.users.first_name ?? ''} ${s.users.last_name ?? ''}`.trim()
+          : null,
         userEmail: s.users?.email ?? null,
         planName: s.plans?.display_name ?? s.plans?.name ?? null,
         status: s.status,
@@ -463,7 +548,10 @@ export class AdminService {
         nextPaymentDate: s.next_payment_date ?? null,
         autoRenew: s.auto_renew,
       }));
-      return ok('Subscriptions fetched successfully', pageOf(content, page, size, total));
+      return ok(
+        'Subscriptions fetched successfully',
+        pageOf(content, page, size, total),
+      );
     } catch (e) {
       return fail(`Failed to fetch subscriptions: ${(e as Error).message}`);
     }
@@ -494,7 +582,10 @@ export class AdminService {
   async listPlans(): Promise<ResponseObject> {
     try {
       const rows = await this.prisma.plans.findMany({ orderBy: { id: 'asc' } });
-      return ok('Plans fetched successfully', rows.map((p) => this.mapPlan(p)));
+      return ok(
+        'Plans fetched successfully',
+        rows.map((p) => this.mapPlan(p)),
+      );
     } catch (e) {
       return fail(`Failed to fetch plans: ${(e as Error).message}`);
     }
@@ -526,9 +617,13 @@ export class AdminService {
   async createPlan(dto: PlanRequestDto): Promise<ResponseObject> {
     try {
       if (!dto.name) return fail('Plan name is required');
-      const existing = await this.prisma.plans.findUnique({ where: { name: dto.name } });
+      const existing = await this.prisma.plans.findUnique({
+        where: { name: dto.name },
+      });
       if (existing) return fail(`Plan with name ${dto.name} already exists`);
-      const created = await this.prisma.plans.create({ data: this.toPlanData(dto) });
+      const created = await this.prisma.plans.create({
+        data: this.toPlanData(dto),
+      });
       return ok('Plan created successfully', this.mapPlan(created));
     } catch (e) {
       return fail(`Failed to create plan: ${(e as Error).message}`);
@@ -571,7 +666,10 @@ export class AdminService {
     try {
       const plan = await this.prisma.plans.findUnique({ where: { id } });
       if (!plan) return fail('Plan not found');
-      await this.prisma.plans.update({ where: { id }, data: { is_active: active } });
+      await this.prisma.plans.update({
+        where: { id },
+        data: { is_active: active },
+      });
       return ok(`Plan active set to ${active}`);
     } catch (e) {
       return fail(`Failed to update plan: ${(e as Error).message}`);
@@ -583,9 +681,13 @@ export class AdminService {
     try {
       const plan = await this.prisma.plans.findUnique({ where: { id } });
       if (!plan) return fail('Plan not found');
-      const refs = await this.prisma.subscriptions.count({ where: { plan_id: id } });
+      const refs = await this.prisma.subscriptions.count({
+        where: { plan_id: id },
+      });
       if (refs > 0) {
-        return fail(`Cannot delete plan: ${refs} subscription(s) still reference it. Deactivate it instead.`);
+        return fail(
+          `Cannot delete plan: ${refs} subscription(s) still reference it. Deactivate it instead.`,
+        );
       }
       await this.prisma.plans.delete({ where: { id } });
       return ok('Plan deleted successfully');
@@ -597,8 +699,17 @@ export class AdminService {
   // 16. GET/POST/PUT/DELETE /admin/categories ------------------------------
   async listCategories(): Promise<ResponseObject> {
     try {
-      const rows = await this.prisma.categories.findMany({ orderBy: { id: 'asc' } });
-      return ok('Categories fetched successfully', rows.map((c) => ({ id: nb(c.id), name: c.name, description: c.description })));
+      const rows = await this.prisma.categories.findMany({
+        orderBy: { id: 'asc' },
+      });
+      return ok(
+        'Categories fetched successfully',
+        rows.map((c) => ({
+          id: nb(c.id),
+          name: c.name,
+          description: c.description,
+        })),
+      );
     } catch (e) {
       return fail(`Failed to fetch categories: ${(e as Error).message}`);
     }
@@ -607,24 +718,42 @@ export class AdminService {
   async createCategory(dto: CategoryRequestDto): Promise<ResponseObject> {
     try {
       if (!dto.name) return fail('Category name is required');
-      const existing = await this.prisma.categories.findUnique({ where: { name: dto.name } });
+      const existing = await this.prisma.categories.findUnique({
+        where: { name: dto.name },
+      });
       if (existing) return fail(`Category ${dto.name} already exists`);
-      const created = await this.prisma.categories.create({ data: { name: dto.name, description: dto.description } });
-      return ok('Category created successfully', { id: nb(created.id), name: created.name, description: created.description });
+      const created = await this.prisma.categories.create({
+        data: { name: dto.name, description: dto.description },
+      });
+      return ok('Category created successfully', {
+        id: nb(created.id),
+        name: created.name,
+        description: created.description,
+      });
     } catch (e) {
       return fail(`Failed to create category: ${(e as Error).message}`);
     }
   }
 
-  async updateCategory(id: bigint, dto: CategoryRequestDto): Promise<ResponseObject> {
+  async updateCategory(
+    id: bigint,
+    dto: CategoryRequestDto,
+  ): Promise<ResponseObject> {
     try {
       const cat = await this.prisma.categories.findUnique({ where: { id } });
       if (!cat) return fail('Category not found');
       const updated = await this.prisma.categories.update({
         where: { id },
-        data: { name: dto.name ?? undefined, description: dto.description ?? undefined },
+        data: {
+          name: dto.name ?? undefined,
+          description: dto.description ?? undefined,
+        },
       });
-      return ok('Category updated successfully', { id: nb(updated.id), name: updated.name, description: updated.description });
+      return ok('Category updated successfully', {
+        id: nb(updated.id),
+        name: updated.name,
+        description: updated.description,
+      });
     } catch (e) {
       return fail(`Failed to update category: ${(e as Error).message}`);
     }
@@ -637,14 +766,22 @@ export class AdminService {
       await this.prisma.categories.delete({ where: { id } });
       return ok('Category deleted successfully');
     } catch (e) {
-      return fail(`Failed to delete category (it may still be referenced by products): ${(e as Error).message}`);
+      return fail(
+        `Failed to delete category (it may still be referenced by products): ${(e as Error).message}`,
+      );
     }
   }
 
   // 17. GET /admin/activity -------------------------------------------------
   async getActivity(): Promise<ResponseObject> {
     try {
-      type Item = { type: string; title: string; amount?: number; currency?: string | null; at: string | null };
+      type Item = {
+        type: string;
+        title: string;
+        amount?: number;
+        currency?: string | null;
+        at: string | null;
+      };
       const [users, businesses, payments, invoices] = await Promise.all([
         this.prisma.users.findMany({
           select: { first_name: true, last_name: true, date_added: true },
@@ -654,7 +791,9 @@ export class AdminService {
         this.prisma.businesses.findMany({
           orderBy: { id: 'desc' },
           take: 20,
-          include: { users_businesses_owner_idTousers: { select: { date_added: true } } },
+          include: {
+            users_businesses_owner_idTousers: { select: { date_added: true } },
+          },
         }),
         this.prisma.payments.findMany({
           where: { status: 'SUCCESS' },
@@ -668,12 +807,19 @@ export class AdminService {
 
       for (const u of users) {
         const d = parseDateAdded(u.date_added);
-        const name = `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim() || 'user';
-        events.push({ type: 'user_signup', title: `New user ${name}`, at: d ? d.toISOString() : null });
+        const name =
+          `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim() || 'user';
+        events.push({
+          type: 'user_signup',
+          title: `New user ${name}`,
+          at: d ? d.toISOString() : null,
+        });
       }
       for (const b of businesses) {
         // businesses has no created_at; use the owner's date_added as a proxy.
-        const d = parseDateAdded(b.users_businesses_owner_idTousers?.date_added);
+        const d = parseDateAdded(
+          b.users_businesses_owner_idTousers?.date_added,
+        );
         events.push({
           type: 'business_created',
           title: `New business ${b.business_name ?? ''}`.trim(),

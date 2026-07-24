@@ -44,8 +44,13 @@ export class TaxService {
 
   async getByBusiness(businessId: bigint): Promise<ResponseObject> {
     try {
-      const items = await this.prisma.tax_rates.findMany({ where: { business_id: businessId } });
-      return ok('Tax rates fetched successfully', items.map((t) => this.mapDTO(t)));
+      const items = await this.prisma.tax_rates.findMany({
+        where: { business_id: businessId },
+      });
+      return ok(
+        'Tax rates fetched successfully',
+        items.map((t) => this.mapDTO(t)),
+      );
     } catch (e) {
       return fail(`Failed to fetch tax rates: ${(e as Error).message}`);
     }
@@ -53,7 +58,9 @@ export class TaxService {
 
   async update(id: bigint, dto: UpdateTaxRateDto): Promise<ResponseObject> {
     try {
-      const existing = await this.prisma.tax_rates.findUnique({ where: { id } });
+      const existing = await this.prisma.tax_rates.findUnique({
+        where: { id },
+      });
       if (!existing) return fail('Tax rate not found');
       if (dto.isDefault && existing.business_id != null) {
         await this.prisma.tax_rates.updateMany({
@@ -77,7 +84,9 @@ export class TaxService {
 
   async remove(id: bigint): Promise<ResponseObject> {
     try {
-      const existing = await this.prisma.tax_rates.findUnique({ where: { id } });
+      const existing = await this.prisma.tax_rates.findUnique({
+        where: { id },
+      });
       if (!existing) return fail('Tax rate not found');
       await this.prisma.tax_rates.delete({ where: { id } });
       return ok('Tax rate deleted successfully');

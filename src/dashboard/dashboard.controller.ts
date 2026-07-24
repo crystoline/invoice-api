@@ -7,7 +7,10 @@ export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
   @Get('business/:businessId/stats')
-  stats(@Param('businessId') businessId: string, @Query('currency') currency?: string) {
+  stats(
+    @Param('businessId') businessId: string,
+    @Query('currency') currency?: string,
+  ) {
     return this.dashboard.getStats(BigInt(businessId), currency);
   }
 
@@ -17,7 +20,11 @@ export class DashboardController {
     @Query('range') range?: string,
     @Query('currency') currency?: string,
   ) {
-    return this.dashboard.getCashflow(BigInt(businessId), range ?? '7m', currency);
+    return this.dashboard.getCashflow(
+      BigInt(businessId),
+      range ?? '7m',
+      currency,
+    );
   }
 
   @Get('business/:businessId/activity')

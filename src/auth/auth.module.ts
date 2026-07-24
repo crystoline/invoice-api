@@ -26,8 +26,19 @@ import { jwtKey } from './jwt.util';
       }),
     }),
   ],
-  controllers: [AuthController, UserController, OAuth2Controller, TwoFactorController],
-  providers: [AuthService, UserService, GoogleAuthService, TwoFactorService, JwtStrategy],
+  controllers: [
+    AuthController,
+    UserController,
+    OAuth2Controller,
+    TwoFactorController,
+  ],
+  providers: [
+    AuthService,
+    UserService,
+    GoogleAuthService,
+    TwoFactorService,
+    JwtStrategy,
+  ],
   exports: [AuthService, TwoFactorService],
 })
 export class AuthModule {}

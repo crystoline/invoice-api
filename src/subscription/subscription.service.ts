@@ -13,7 +13,9 @@ const DEFAULT_DURATION_DAYS = 30;
 const num = (v: number | null): number | null => (v == null ? null : Number(v));
 
 const subInclude = { plans: true } satisfies Prisma.subscriptionsInclude;
-type SubscriptionWithPlan = Prisma.subscriptionsGetPayload<{ include: typeof subInclude }>;
+type SubscriptionWithPlan = Prisma.subscriptionsGetPayload<{
+  include: typeof subInclude;
+}>;
 
 @Injectable()
 export class SubscriptionService implements OnModuleInit {
@@ -71,7 +73,8 @@ export class SubscriptionService implements OnModuleInit {
       {
         name: 'Professional',
         display_name: 'Professional',
-        description: 'For growing businesses that need more power and customization.',
+        description:
+          'For growing businesses that need more power and customization.',
         duration_in_days: DEFAULT_DURATION_DAYS,
         price: 15000,
         price_ngn_monthly: 15000,
@@ -110,7 +113,11 @@ export class SubscriptionService implements OnModuleInit {
     ];
 
     for (const tier of tiers) {
-      await this.prisma.plans.upsert({ where: { name: tier.name }, create: tier, update: tier });
+      await this.prisma.plans.upsert({
+        where: { name: tier.name },
+        create: tier,
+        update: tier,
+      });
     }
     this.logger.log(`Synced ${tiers.length} subscription plan tiers.`);
   }
@@ -163,20 +170,31 @@ export class SubscriptionService implements OnModuleInit {
 
   /** GET /subscription/plans — active plans in the public catalogue shape. */
   async getPlans(): Promise<ResponseObject> {
-    const rows = await this.prisma.plans.findMany({ where: { is_active: true }, orderBy: { id: 'asc' } });
-    return ok('Plans retrieved successfully.', rows.map((p) => this.mapPlan(p)));
+    const rows = await this.prisma.plans.findMany({
+      where: { is_active: true },
+      orderBy: { id: 'asc' },
+    });
+    return ok(
+      'Plans retrieved successfully.',
+      rows.map((p) => this.mapPlan(p)),
+    );
   }
 
   /** GET /subscription/current — the caller's latest subscription (or null). */
   async getCurrent(user: AuthUser): Promise<ResponseObject> {
     const sub = await this.currentSubscription(user.id);
-    return ok('Current subscription retrieved.', sub ? this.mapSubscription(sub) : null);
+    return ok(
+      'Current subscription retrieved.',
+      sub ? this.mapSubscription(sub) : null,
+    );
   }
 
   /** POST /subscription/subscribe — start a 14-day trial on the chosen plan. */
   async subscribe(dto: SubscribeDto, user: AuthUser): Promise<ResponseObject> {
     if (dto.planId == null) return fail('planId is required.');
-    const plan = await this.prisma.plans.findUnique({ where: { id: BigInt(dto.planId) } });
+    const plan = await this.prisma.plans.findUnique({
+      where: { id: BigInt(dto.planId) },
+    });
     if (!plan) return fail('Plan not found.');
 
     const now = new Date();
@@ -195,17 +213,28 @@ export class SubscriptionService implements OnModuleInit {
       },
       include: subInclude,
     });
-    return ok('Subscription created. Your trial has started.', this.mapSubscription(sub));
+    return ok(
+      'Subscription created. Your trial has started.',
+      this.mapSubscription(sub),
+    );
   }
 
   /** POST /subscription/change — upgrade / downgrade the current subscription. */
-  async changePlan(dto: ChangePlanDto, user: AuthUser): Promise<ResponseObject> {
+  async changePlan(
+    dto: ChangePlanDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     if (dto.planId == null) return fail('planId is required.');
-    const plan = await this.prisma.plans.findUnique({ where: { id: BigInt(dto.planId) } });
+    const plan = await this.prisma.plans.findUnique({
+      where: { id: BigInt(dto.planId) },
+    });
     if (!plan) return fail('Plan not found.');
 
     const current = await this.currentSubscription(user.id);
-    if (!current) return fail('No active subscription to change. Subscribe to a plan first.');
+    if (!current)
+      return fail(
+        'No active subscription to change. Subscribe to a plan first.',
+      );
 
     const updated = await this.prisma.subscriptions.update({
       where: { id: current.id },
@@ -234,10 +263,17 @@ export class SubscriptionService implements OnModuleInit {
    * given business. A null limit means unlimited. Provided for callers to wire
    * in (not enforced globally).
    */
-  async checkInvoiceQuota(userId: bigint, businessId: bigint): Promise<{ allowed: boolean; message?: string }> {
+  async checkInvoiceQuota(
+    userId: bigint,
+    businessId: bigint,
+  ): Promise<{ allowed: boolean; message?: string }> {
     const sub = await this.currentSubscription(userId);
     if (!sub || !sub.plans) {
-      return { allowed: false, message: 'No active subscription plan found. Please subscribe to a plan.' };
+      return {
+        allowed: false,
+        message:
+          'No active subscription plan found. Please subscribe to a plan.',
+      };
     }
 
     const limit = sub.plans.max_invoices_per_month;
@@ -247,7 +283,10 @@ export class SubscriptionService implements OnModuleInit {
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
     const used = await this.prisma.invoices.count({
-      where: { business_id: businessId, invoice_date: { gte: startOfMonth, lt: startOfNextMonth } },
+      where: {
+        business_id: businessId,
+        invoice_date: { gte: startOfMonth, lt: startOfNextMonth },
+      },
     });
 
     if (used >= limit) {

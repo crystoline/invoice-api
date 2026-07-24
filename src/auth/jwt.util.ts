@@ -41,15 +41,20 @@ export function formatLastActivity(date: Date): string {
 
 /** Parse a "dd-MM-yyyy H:mm:ss" Lagos wall-clock string to epoch millis (Lagos = UTC+1, no DST). */
 export function parseLastActivity(value: string): number | null {
-  const m = value.match(/^(\d{1,2})-(\d{1,2})-(\d{4}) (\d{1,2}):(\d{2}):(\d{2})$/);
+  const m = value.match(
+    /^(\d{1,2})-(\d{1,2})-(\d{4}) (\d{1,2}):(\d{2}):(\d{2})$/,
+  );
   if (!m) return null;
-  const [, dd, mm, yyyy, H, min, ss] = m.map(Number) as unknown as number[];
+  const [, dd, mm, yyyy, H, min, ss] = m.map(Number);
   // Lagos is UTC+1 → subtract 1h to get UTC.
   return Date.UTC(yyyy, mm - 1, dd, H - 1, min, ss);
 }
 
 /** True if the token's last_activity is more than 30 minutes in the past (→ invalid). */
-export function isInactive(lastActivity: string | undefined, now: Date = new Date()): boolean {
+export function isInactive(
+  lastActivity: string | undefined,
+  now: Date = new Date(),
+): boolean {
   if (!lastActivity) return false; // no claim → not checked (matches Spring)
   const ms = parseLastActivity(lastActivity);
   if (ms === null) return true; // unparseable → treated as invalid

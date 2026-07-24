@@ -7,7 +7,9 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 // Prisma models use BigInt ids; Spring serialized Long as a JSON number.
 // Serialize BigInt as Number so the API stays contract-compatible.
-(BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function (this: bigint) {
+(BigInt.prototype as unknown as { toJSON: () => number }).toJSON = function (
+  this: bigint,
+) {
   return Number(this);
 };
 
@@ -37,7 +39,11 @@ async function bootstrap() {
     .setVersion('1.0')
     .addBearerAuth()
     .build();
-  SwaggerModule.setup('swagger-ui', app, SwaggerModule.createDocument(app, swaggerConfig));
+  SwaggerModule.setup(
+    'swagger-ui',
+    app,
+    SwaggerModule.createDocument(app, swaggerConfig),
+  );
 
   // Spring used @CrossOrigin(origins = "*"). Keep it permissive for now; tighten
   // to FRONTEND_URL before cutover (see migration doc §7).

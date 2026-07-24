@@ -1,7 +1,20 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+  Res,
+} from '@nestjs/common';
 import type { Response } from 'express';
 import { InvoiceService } from './invoice.service';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 import { InvoiceRequestDto, InvoiceApprovalDto } from './dto/invoice.dto';
 
 /**
@@ -24,17 +37,32 @@ export class InvoiceController {
   }
 
   @Get('paginated-invoices')
-  paginated(@Query('page') page = '0', @Query('size') size = '10', @CurrentUser() user: AuthUser) {
-    return this.invoices.getAllInvoicesInPagination(Number(page) || 0, Number(size) || 10, user);
+  paginated(
+    @Query('page') page = '0',
+    @Query('size') size = '10',
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.invoices.getAllInvoicesInPagination(
+      Number(page) || 0,
+      Number(size) || 10,
+      user,
+    );
   }
 
   @Get('business/:businessId')
-  byBusiness(@Param('businessId') businessId: string, @CurrentUser() user: AuthUser) {
+  byBusiness(
+    @Param('businessId') businessId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.invoices.getBusinessInvoices(BigInt(businessId), user);
   }
 
   @Put('invoice/update/:invoiceId')
-  update(@Param('invoiceId') invoiceId: string, @Body() dto: InvoiceRequestDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Param('invoiceId') invoiceId: string,
+    @Body() dto: InvoiceRequestDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.invoices.updateInvoice(BigInt(invoiceId), dto, user);
   }
 
@@ -44,7 +72,10 @@ export class InvoiceController {
   }
 
   @Post('invoice/duplicate/:invoiceId')
-  duplicate(@Param('invoiceId') invoiceId: string, @CurrentUser() user: AuthUser) {
+  duplicate(
+    @Param('invoiceId') invoiceId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.invoices.duplicateInvoice(BigInt(invoiceId), user);
   }
 
@@ -59,15 +90,29 @@ export class InvoiceController {
   }
 
   @Get(':id/raw-download')
-  async raw(@Param('id') id: string, @CurrentUser() user: AuthUser, @Res() res: Response) {
+  async raw(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+  ) {
     const buffer = await this.invoices.downloadRaw(BigInt(id), user);
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="invoice_raw${id}.pdf"` });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="invoice_raw${id}.pdf"`,
+    });
     res.send(buffer);
   }
 
   @Get(':id/default-template-download')
-  async defaultTemplate(@Param('id') id: string, @CurrentUser() user: AuthUser, @Res() res: Response) {
-    const buffer = await this.invoices.downloadDefaultTemplate(BigInt(id), user);
+  async defaultTemplate(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.invoices.downloadDefaultTemplate(
+      BigInt(id),
+      user,
+    );
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="invoice_default_template${id}.pdf"`,
@@ -77,9 +122,19 @@ export class InvoiceController {
 
   // Alias for the existing frontend (invoice.service.js calls /invoices/invoice/download/:id as a blob).
   @Get('invoice/download/:id')
-  async download(@Param('id') id: string, @CurrentUser() user: AuthUser, @Res() res: Response) {
-    const buffer = await this.invoices.downloadDefaultTemplate(BigInt(id), user);
-    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="invoice_${id}.pdf"` });
+  async download(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.invoices.downloadDefaultTemplate(
+      BigInt(id),
+      user,
+    );
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="invoice_${id}.pdf"`,
+    });
     res.send(buffer);
   }
 

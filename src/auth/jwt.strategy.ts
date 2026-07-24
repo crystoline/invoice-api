@@ -56,11 +56,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException(`User Not Found with username: ${email}`);
     }
     if (!user.status) {
-      throw new UnauthorizedException('User is deactivated. Please contact the administrator.');
+      throw new UnauthorizedException(
+        'User is deactivated. Please contact the administrator.',
+      );
     }
     const roles = user.user_role
       .map((ur) => ur.roles?.name)
-      .filter((n): n is NonNullable<typeof n> => Boolean(n)) as unknown as string[];
+      .filter((n): n is NonNullable<typeof n> =>
+        Boolean(n),
+      ) as unknown as string[];
     return { id: user.id, email: user.email ?? '', roles };
   }
 }

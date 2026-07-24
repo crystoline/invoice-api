@@ -25,7 +25,9 @@ export class ManualPaymentDto {
   @IsOptional() @IsNumber() invoiceId?: number;
   @IsOptional() @IsNumber() amount?: number;
   @IsOptional()
-  @Transform(({ value }) => (typeof value === 'string' ? value.toUpperCase() : value))
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.toUpperCase() : value,
+  )
   @IsIn(PAYMENT_METHODS)
   method?: string;
   @IsOptional() @IsString() reference?: string;

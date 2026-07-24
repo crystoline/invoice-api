@@ -15,13 +15,19 @@ export class WebhookController {
   @Post('paystack')
   paystack(@Req() req: RawBodyRequest<Request>) {
     const sig = String(req.headers['x-paystack-signature'] ?? '');
-    return this.payment.handlePaystackWebhook(req.rawBody ?? Buffer.from(''), sig);
+    return this.payment.handlePaystackWebhook(
+      req.rawBody ?? Buffer.from(''),
+      sig,
+    );
   }
 
   @Public()
   @Post('stripe')
   stripe(@Req() req: RawBodyRequest<Request>) {
     const sig = String(req.headers['stripe-signature'] ?? '');
-    return this.payment.handleStripeWebhook(req.rawBody ?? Buffer.from(''), sig);
+    return this.payment.handleStripeWebhook(
+      req.rawBody ?? Buffer.from(''),
+      sig,
+    );
   }
 }

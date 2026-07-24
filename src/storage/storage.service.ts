@@ -18,7 +18,10 @@ export class StorageService {
   }
 
   /** Store a file and return its path relative to the upload dir (e.g. "receipts/<uuid>.pdf"). */
-  async storeFile(file: Express.Multer.File, subdirectory: string): Promise<string> {
+  async storeFile(
+    file: Express.Multer.File,
+    subdirectory: string,
+  ): Promise<string> {
     const targetDir = join(process.cwd(), this.uploadDir, subdirectory);
     await mkdir(targetDir, { recursive: true });
     const ext = extname(file.originalname) || '';

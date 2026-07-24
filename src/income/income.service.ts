@@ -5,10 +5,14 @@ import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { IncomeRequestDto } from './dto/income.dto';
 
 const incomeInclude = { customers: true } satisfies Prisma.incomeInclude;
-type IncomeWithCustomer = Prisma.incomeGetPayload<{ include: typeof incomeInclude }>;
+type IncomeWithCustomer = Prisma.incomeGetPayload<{
+  include: typeof incomeInclude;
+}>;
 
-const num = (d: Prisma.Decimal | null): number | null => (d != null ? Number(d) : null);
-const ymd = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
+const num = (d: Prisma.Decimal | null): number | null =>
+  d != null ? Number(d) : null;
+const ymd = (d: Date | null): string | null =>
+  d ? d.toISOString().slice(0, 10) : null;
 
 @Injectable()
 export class IncomeService {
@@ -24,17 +28,23 @@ export class IncomeService {
       categoryName: i.category_name,
       businessId: i.business_id,
       customerId: i.customer_id,
-      customerName: i.customers ? `${i.customers.first_name ?? ''} ${i.customers.last_name ?? ''}`.trim() : null,
+      customerName: i.customers
+        ? `${i.customers.first_name ?? ''} ${i.customers.last_name ?? ''}`.trim()
+        : null,
     };
   }
 
   async create(dto: IncomeRequestDto): Promise<ResponseObject> {
     try {
-      const business = await this.prisma.businesses.findUnique({ where: { id: BigInt(dto.businessId ?? 0) } });
+      const business = await this.prisma.businesses.findUnique({
+        where: { id: BigInt(dto.businessId ?? 0) },
+      });
       if (!business) throw new Error('Business not found');
       let customerId: bigint | null = null;
       if (dto.customerId != null) {
-        const c = await this.prisma.customers.findUnique({ where: { id: BigInt(dto.customerId) } });
+        const c = await this.prisma.customers.findUnique({
+          where: { id: BigInt(dto.customerId) },
+        });
         if (!c) throw new Error('Customer not found');
         customerId = c.id;
       }
@@ -63,7 +73,10 @@ export class IncomeService {
         orderBy: { income_date: 'desc' },
         include: incomeInclude,
       });
-      return ok('Income fetched successfully', items.map((i) => this.mapDTO(i)));
+      return ok(
+        'Income fetched successfully',
+        items.map((i) => this.mapDTO(i)),
+      );
     } catch (e) {
       return fail(`Failed to fetch income: ${(e as Error).message}`);
     }
@@ -75,7 +88,9 @@ export class IncomeService {
       if (!existing) throw new Error('Income not found');
       let customerId: bigint | undefined;
       if (dto.customerId != null) {
-        const c = await this.prisma.customers.findUnique({ where: { id: BigInt(dto.customerId) } });
+        const c = await this.prisma.customers.findUnique({
+          where: { id: BigInt(dto.customerId) },
+        });
         if (!c) throw new Error('Customer not found');
         customerId = c.id;
       }

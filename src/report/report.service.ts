@@ -9,21 +9,28 @@ import { ReportQueryDto } from './dto/report-query.dto';
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Decimal | null → number (missing/NULL sums become 0, never null). */
-const num = (d: Prisma.Decimal | null | undefined): number => (d != null ? Number(d) : 0);
+const num = (d: Prisma.Decimal | null | undefined): number =>
+  d != null ? Number(d) : 0;
 /** Trim binary-float noise from summed money to 2dp. */
-const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 100;
+const round2 = (n: number): number =>
+  Math.round((n + Number.EPSILON) * 100) / 100;
 /** Date → 'YYYY-MM-DD' (UTC). */
-const ymd = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
+const ymd = (d: Date | null | undefined): string | null =>
+  d ? d.toISOString().slice(0, 10) : null;
 /** Date → 'YYYY-MM' bucket key (UTC). */
 const monthKey = (d: Date | null | undefined): string | null =>
-  d ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}` : null;
-const isCsv = (format?: string): boolean => (format ?? '').toLowerCase() === 'csv';
+  d
+    ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    : null;
+const isCsv = (format?: string): boolean =>
+  (format ?? '').toLowerCase() === 'csv';
 /** RFC-4180-ish escaping so category names containing commas stay one column. */
 const csvCell = (v: string | number | null | undefined): string => {
   const s = String(v ?? '');
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
-const startOfUtcDay = (d: Date): Date => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+const startOfUtcDay = (d: Date): Date =>
+  new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 
 type DateRange = { gte?: Date; lte?: Date };
 
@@ -49,11 +56,18 @@ export class ReportService {
    * and be owned by the caller — or the caller must be an admin. Returns a
    * `fail()` envelope to short-circuit on, or null when access is granted.
    */
-  private async assertBusinessAccess(businessId: bigint, user: AuthUser): Promise<ResponseObject | null> {
-    const business = await this.prisma.businesses.findUnique({ where: { id: businessId } });
+  private async assertBusinessAccess(
+    businessId: bigint,
+    user: AuthUser,
+  ): Promise<ResponseObject | null> {
+    const business = await this.prisma.businesses.findUnique({
+      where: { id: businessId },
+    });
     if (!business) return fail('Business not found');
     if (business.owner_id !== user.id && !user.roles.includes(Role.ADMIN)) {
-      return fail('You do not have permission to view reports for this business');
+      return fail(
+        'You do not have permission to view reports for this business',
+      );
     }
     return null;
   }
@@ -68,7 +82,12 @@ export class ReportService {
   private async resolveCurrency(
     businessId: bigint,
     requested?: string,
-  ): Promise<{ effective: string; isDefault: boolean; defaultCurrency: string; invoiceWhere: Prisma.invoicesWhereInput }> {
+  ): Promise<{
+    effective: string;
+    isDefault: boolean;
+    defaultCurrency: string;
+    invoiceWhere: Prisma.invoicesWhereInput;
+  }> {
     const business = await this.prisma.businesses.findUnique({
       where: { id: businessId },
       select: { default_currency: true },
@@ -95,7 +114,12 @@ export class ReportService {
       if (!isNaN(d.getTime())) {
         // A date-only bound ('2026-07-18') parses to midnight UTC; widen it to
         // the end of that day so the upper bound is inclusive.
-        if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0) {
+        if (
+          d.getUTCHours() === 0 &&
+          d.getUTCMinutes() === 0 &&
+          d.getUTCSeconds() === 0 &&
+          d.getUTCMilliseconds() === 0
+        ) {
           d.setUTCHours(23, 59, 59, 999);
         }
         range.lte = d;
@@ -106,7 +130,10 @@ export class ReportService {
 
   // ── GET /api/reports/revenue ───────────────────────────────────────────────
 
-  async revenue(query: ReportQueryDto, user: AuthUser): Promise<ResponseObject> {
+  async revenue(
+    query: ReportQueryDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       const businessId = this.parseBusinessId(query.businessId);
       if (businessId == null) return fail('A valid businessId is required');
@@ -116,29 +143,46 @@ export class ReportService {
       const range = this.parseRange(query.from, query.to);
       const cur = await this.resolveCurrency(businessId, query.currency);
 
-      const invoiceWhere: Prisma.invoicesWhereInput = { business_id: businessId, ...cur.invoiceWhere };
+      const invoiceWhere: Prisma.invoicesWhereInput = {
+        business_id: businessId,
+        ...cur.invoiceWhere,
+      };
       if (range) invoiceWhere.invoice_date = range;
       const incomeWhere: Prisma.incomeWhereInput = { business_id: businessId };
       if (range) incomeWhere.income_date = range;
 
       // Income has no currency dimension → only counted in the default view.
       const [invAgg, incAgg] = await Promise.all([
-        this.prisma.invoices.aggregate({ where: invoiceWhere, _sum: { total_amount: true, amount_paid: true } }),
+        this.prisma.invoices.aggregate({
+          where: invoiceWhere,
+          _sum: { total_amount: true, amount_paid: true },
+        }),
         cur.isDefault
-          ? this.prisma.income.aggregate({ where: incomeWhere, _sum: { amount: true } })
+          ? this.prisma.income.aggregate({
+              where: incomeWhere,
+              _sum: { amount: true },
+            })
           : Promise.resolve({ _sum: { amount: null } }),
       ]);
 
       const totalInvoiced = round2(num(invAgg._sum.total_amount));
       const totalCollected = round2(num(invAgg._sum.amount_paid));
       const totalIncome = round2(num(incAgg._sum.amount));
-      const byMonth = await this.revenueByMonth(businessId, cur.invoiceWhere, cur.isDefault);
+      const byMonth = await this.revenueByMonth(
+        businessId,
+        cur.invoiceWhere,
+        cur.isDefault,
+      );
 
       if (isCsv(query.format)) {
         const header = 'month,invoiced,collected,income';
-        const rows = byMonth.map((m) => `${m.month},${m.invoiced},${m.collected},${m.income}`);
+        const rows = byMonth.map(
+          (m) => `${m.month},${m.invoiced},${m.collected},${m.income}`,
+        );
         const totalRow = `TOTAL,${totalInvoiced},${totalCollected},${totalIncome}`;
-        return ok('Revenue report generated', { csv: [header, ...rows, totalRow].join('\n') });
+        return ok('Revenue report generated', {
+          csv: [header, ...rows, totalRow].join('\n'),
+        });
       }
 
       return ok('Revenue report generated', {
@@ -162,14 +206,28 @@ export class ReportService {
     businessId: bigint,
     currencyWhere: Prisma.invoicesWhereInput,
     includeIncome: boolean,
-  ): Promise<Array<{ month: string; invoiced: number; collected: number; income: number }>> {
+  ): Promise<
+    Array<{
+      month: string;
+      invoiced: number;
+      collected: number;
+      income: number;
+    }>
+  > {
     const now = new Date();
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
+    const start = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1),
+    );
 
     const months: string[] = [];
-    const acc: Record<string, { invoiced: number; collected: number; income: number }> = {};
+    const acc: Record<
+      string,
+      { invoiced: number; collected: number; income: number }
+    > = {};
     for (let i = 0; i < 12; i++) {
-      const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
+      const d = new Date(
+        Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1),
+      );
       const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
       months.push(key);
       acc[key] = { invoiced: 0, collected: 0, income: 0 };
@@ -177,7 +235,11 @@ export class ReportService {
 
     const [invoices, incomes] = await Promise.all([
       this.prisma.invoices.findMany({
-        where: { business_id: businessId, ...currencyWhere, invoice_date: { gte: start } },
+        where: {
+          business_id: businessId,
+          ...currencyWhere,
+          invoice_date: { gte: start },
+        },
         select: { invoice_date: true, total_amount: true, amount_paid: true },
       }),
       includeIncome
@@ -210,7 +272,10 @@ export class ReportService {
 
   // ── GET /api/reports/expenses ──────────────────────────────────────────────
 
-  async expenses(query: ReportQueryDto, user: AuthUser): Promise<ResponseObject> {
+  async expenses(
+    query: ReportQueryDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       const businessId = this.parseBusinessId(query.businessId);
       if (businessId == null) return fail('A valid businessId is required');
@@ -220,23 +285,39 @@ export class ReportService {
       const cur = await this.resolveCurrency(businessId, query.currency);
       // Bills have no currency dimension → expenses only apply to the default view.
       if (!cur.isDefault) {
-        const empty = { businessId, currency: cur.effective, defaultCurrency: cur.defaultCurrency, totalBills: 0, billCount: 0, byCategory: [] };
+        const empty = {
+          businessId,
+          currency: cur.effective,
+          defaultCurrency: cur.defaultCurrency,
+          totalBills: 0,
+          billCount: 0,
+          byCategory: [],
+        };
         if (isCsv(query.format)) {
-          return ok('Expenses report generated', { csv: 'categoryName,amount,count\nTOTAL,0,0' });
+          return ok('Expenses report generated', {
+            csv: 'categoryName,amount,count\nTOTAL,0,0',
+          });
         }
         return ok('Expenses report generated', empty);
       }
 
       // bills carry no date column, so from/to do not apply here.
       const [totalAgg, grouped, categories] = await Promise.all([
-        this.prisma.bills.aggregate({ where: { business_id: businessId }, _sum: { total_amount: true }, _count: true }),
+        this.prisma.bills.aggregate({
+          where: { business_id: businessId },
+          _sum: { total_amount: true },
+          _count: true,
+        }),
         this.prisma.bills.groupBy({
           by: ['category_id'],
           where: { business_id: businessId },
           _sum: { total_amount: true },
           _count: true,
         }),
-        this.prisma.expense_categories.findMany({ where: { business_id: businessId }, select: { id: true, name: true } }),
+        this.prisma.expense_categories.findMany({
+          where: { business_id: businessId },
+          select: { id: true, name: true },
+        }),
       ]);
 
       const nameById = new Map<string, string>();
@@ -249,7 +330,9 @@ export class ReportService {
         .map((g) => ({
           categoryId: g.category_id,
           categoryName:
-            g.category_id != null ? nameById.get(g.category_id.toString()) ?? 'Unknown' : 'Uncategorized',
+            g.category_id != null
+              ? (nameById.get(g.category_id.toString()) ?? 'Unknown')
+              : 'Uncategorized',
           amount: round2(num(g._sum.total_amount)),
           count: g._count,
         }))
@@ -257,9 +340,13 @@ export class ReportService {
 
       if (isCsv(query.format)) {
         const header = 'categoryName,amount,count';
-        const rows = byCategory.map((c) => `${csvCell(c.categoryName)},${c.amount},${c.count}`);
+        const rows = byCategory.map(
+          (c) => `${csvCell(c.categoryName)},${c.amount},${c.count}`,
+        );
         const totalRow = `TOTAL,${totalBills},${billCount}`;
-        return ok('Expenses report generated', { csv: [header, ...rows, totalRow].join('\n') });
+        return ok('Expenses report generated', {
+          csv: [header, ...rows, totalRow].join('\n'),
+        });
       }
 
       return ok('Expenses report generated', {
@@ -271,7 +358,9 @@ export class ReportService {
         byCategory,
       });
     } catch (e) {
-      return fail(`Failed to generate expenses report: ${(e as Error).message}`);
+      return fail(
+        `Failed to generate expenses report: ${(e as Error).message}`,
+      );
     }
   }
 
@@ -286,12 +375,21 @@ export class ReportService {
 
       const range = this.parseRange(query.from, query.to);
       const cur = await this.resolveCurrency(businessId, query.currency);
-      const where: Prisma.invoicesWhereInput = { business_id: businessId, is_paid: { not: true }, ...cur.invoiceWhere };
+      const where: Prisma.invoicesWhereInput = {
+        business_id: businessId,
+        is_paid: { not: true },
+        ...cur.invoiceWhere,
+      };
       if (range) where.invoice_date = range;
 
       const invoices = await this.prisma.invoices.findMany({
         where,
-        select: { total_amount: true, amount_paid: true, due_date: true, invoice_date: true },
+        select: {
+          total_amount: true,
+          amount_paid: true,
+          due_date: true,
+          invoice_date: true,
+        },
       });
 
       const buckets = {
@@ -307,7 +405,9 @@ export class ReportService {
         const outstanding = num(inv.total_amount) - num(inv.amount_paid);
         if (outstanding <= 0) continue; // nothing owed → not in the aging report
         const ref = inv.due_date ?? inv.invoice_date;
-        const daysOverdue = ref ? Math.floor((today - startOfUtcDay(ref).getTime()) / DAY_MS) : 0;
+        const daysOverdue = ref
+          ? Math.floor((today - startOfUtcDay(ref).getTime()) / DAY_MS)
+          : 0;
 
         let key: keyof typeof buckets;
         if (daysOverdue <= 0) key = 'current';
@@ -320,14 +420,21 @@ export class ReportService {
         buckets[key].amount += outstanding;
       }
 
-      const bucketList = Object.values(buckets).map((b) => ({ ...b, amount: round2(b.amount) }));
-      const totalOutstanding = round2(bucketList.reduce((s, b) => s + b.amount, 0));
+      const bucketList = Object.values(buckets).map((b) => ({
+        ...b,
+        amount: round2(b.amount),
+      }));
+      const totalOutstanding = round2(
+        bucketList.reduce((s, b) => s + b.amount, 0),
+      );
 
       if (isCsv(query.format)) {
         const header = 'bucket,count,amount';
         const rows = bucketList.map((b) => `${b.label},${b.count},${b.amount}`);
         const totalRow = `TOTAL,,${totalOutstanding}`;
-        return ok('Aging report generated', { csv: [header, ...rows, totalRow].join('\n') });
+        return ok('Aging report generated', {
+          csv: [header, ...rows, totalRow].join('\n'),
+        });
       }
 
       return ok('Aging report generated', {
@@ -344,7 +451,10 @@ export class ReportService {
 
   // ── GET /api/reports/tax-summary ───────────────────────────────────────────
 
-  async taxSummary(query: ReportQueryDto, user: AuthUser): Promise<ResponseObject> {
+  async taxSummary(
+    query: ReportQueryDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       const businessId = this.parseBusinessId(query.businessId);
       if (businessId == null) return fail('A valid businessId is required');
@@ -353,10 +463,17 @@ export class ReportService {
 
       const range = this.parseRange(query.from, query.to);
       const cur = await this.resolveCurrency(businessId, query.currency);
-      const where: Prisma.invoicesWhereInput = { business_id: businessId, ...cur.invoiceWhere };
+      const where: Prisma.invoicesWhereInput = {
+        business_id: businessId,
+        ...cur.invoiceWhere,
+      };
       if (range) where.invoice_date = range;
 
-      const agg = await this.prisma.invoices.aggregate({ where, _sum: { total_amount: true }, _count: true });
+      const agg = await this.prisma.invoices.aggregate({
+        where,
+        _sum: { total_amount: true },
+        _count: true,
+      });
       const taxableTotal = round2(num(agg._sum.total_amount));
       const note =
         'Per-line tax is not modelled yet. taxableTotal is the gross invoiced total for the selected range; taxCollected is 0 until tax lines are added to invoices.';
@@ -369,7 +486,9 @@ export class ReportService {
           `taxCollected,0`,
           `note,${csvCell(note)}`,
         ];
-        return ok('Tax summary report generated', { csv: [header, ...rows].join('\n') });
+        return ok('Tax summary report generated', {
+          csv: [header, ...rows].join('\n'),
+        });
       }
 
       return ok('Tax summary report generated', {
@@ -384,7 +503,9 @@ export class ReportService {
         note,
       });
     } catch (e) {
-      return fail(`Failed to generate tax summary report: ${(e as Error).message}`);
+      return fail(
+        `Failed to generate tax summary report: ${(e as Error).message}`,
+      );
     }
   }
 }

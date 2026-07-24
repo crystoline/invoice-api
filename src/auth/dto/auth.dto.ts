@@ -1,4 +1,10 @@
-import { IsArray, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 /**
  * Auth DTOs. The Spring DTOs carry NO bean-validation and controllers don't use

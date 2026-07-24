@@ -5,10 +5,15 @@ import { EmailService } from '../email/email.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { Role } from '../common/enums/role.enum';
-import { CreateRecurringInvoiceDto, UpdateRecurringInvoiceDto } from './dto/recurring-invoice.dto';
+import {
+  CreateRecurringInvoiceDto,
+  UpdateRecurringInvoiceDto,
+} from './dto/recurring-invoice.dto';
 
-const ymd = (d: Date | null): string | null => (d ? d.toISOString().slice(0, 10) : null);
-const num = (d: Prisma.Decimal | null): number | null => (d != null ? Number(d) : null);
+const ymd = (d: Date | null): string | null =>
+  d ? d.toISOString().slice(0, 10) : null;
+const num = (d: Prisma.Decimal | null): number | null =>
+  d != null ? Number(d) : null;
 
 @Injectable()
 export class RecurringInvoiceService {
@@ -42,7 +47,11 @@ export class RecurringInvoiceService {
   }
 
   /** Advance a date by one period of the given frequency, clamping day-of-month. */
-  private advance(from: Date, frequency: string | null, dayOfMonth: number | null): Date {
+  private advance(
+    from: Date,
+    frequency: string | null,
+    dayOfMonth: number | null,
+  ): Date {
     const d = new Date(from);
     switch (frequency) {
       case 'WEEKLY':
@@ -60,21 +69,33 @@ export class RecurringInvoiceService {
         break;
     }
     if (dayOfMonth) {
-      const daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+      const daysInMonth = new Date(
+        d.getFullYear(),
+        d.getMonth() + 1,
+        0,
+      ).getDate();
       d.setDate(Math.min(dayOfMonth, daysInMonth));
     }
     return d;
   }
 
-  private async ownsBusiness(businessId: bigint | null, user: AuthUser): Promise<boolean> {
+  private async ownsBusiness(
+    businessId: bigint | null,
+    user: AuthUser,
+  ): Promise<boolean> {
     if (this.isAdmin(user)) return true;
     if (businessId == null) return false;
-    const b = await this.prisma.businesses.findUnique({ where: { id: businessId } });
+    const b = await this.prisma.businesses.findUnique({
+      where: { id: businessId },
+    });
     return !!b && b.owner_id === user.id;
   }
 
   // POST /api/recurring-invoices
-  async create(dto: CreateRecurringInvoiceDto, user: AuthUser): Promise<ResponseObject> {
+  async create(
+    dto: CreateRecurringInvoiceDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       if (!dto.templateInvoiceId) return fail('templateInvoiceId is required');
       const template = await this.prisma.invoices.findUnique({
@@ -109,12 +130,17 @@ export class RecurringInvoiceService {
       });
       return ok('Recurring invoice created successfully', this.mapDTO(rec));
     } catch (e) {
-      return fail(`Failed to create recurring invoice: ${(e as Error).message}`);
+      return fail(
+        `Failed to create recurring invoice: ${(e as Error).message}`,
+      );
     }
   }
 
   // GET /api/recurring-invoices/business/:businessId
-  async getByBusiness(businessId: bigint, user: AuthUser): Promise<ResponseObject> {
+  async getByBusiness(
+    businessId: bigint,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       if (!(await this.ownsBusiness(businessId, user))) {
         return fail('You do not have access to this business');
@@ -123,26 +149,41 @@ export class RecurringInvoiceService {
         where: { business_id: businessId },
         orderBy: { next_invoice_date: 'asc' },
       });
-      return ok('Recurring invoices fetched successfully', items.map((r) => this.mapDTO(r)));
+      return ok(
+        'Recurring invoices fetched successfully',
+        items.map((r) => this.mapDTO(r)),
+      );
     } catch (e) {
-      return fail(`Failed to fetch recurring invoices: ${(e as Error).message}`);
+      return fail(
+        `Failed to fetch recurring invoices: ${(e as Error).message}`,
+      );
     }
   }
 
   // GET /api/recurring-invoices/:id
   async getById(id: bigint, user: AuthUser): Promise<ResponseObject> {
-    const rec = await this.prisma.recurringinvoices.findUnique({ where: { id } });
+    const rec = await this.prisma.recurringinvoices.findUnique({
+      where: { id },
+    });
     if (!rec) return fail('Recurring invoice not found');
-    if (!(await this.ownsBusiness(rec.business_id, user))) return fail('Access denied');
+    if (!(await this.ownsBusiness(rec.business_id, user)))
+      return fail('Access denied');
     return ok('Recurring invoice fetched successfully', this.mapDTO(rec));
   }
 
   // PUT /api/recurring-invoices/:id
-  async update(id: bigint, dto: UpdateRecurringInvoiceDto, user: AuthUser): Promise<ResponseObject> {
+  async update(
+    id: bigint,
+    dto: UpdateRecurringInvoiceDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
-      const rec = await this.prisma.recurringinvoices.findUnique({ where: { id } });
+      const rec = await this.prisma.recurringinvoices.findUnique({
+        where: { id },
+      });
       if (!rec) return fail('Recurring invoice not found');
-      if (!(await this.ownsBusiness(rec.business_id, user))) return fail('Access denied');
+      if (!(await this.ownsBusiness(rec.business_id, user)))
+        return fail('Access denied');
       const updated = await this.prisma.recurringinvoices.update({
         where: { id },
         data: {
@@ -156,32 +197,57 @@ export class RecurringInvoiceService {
       });
       return ok('Recurring invoice updated successfully', this.mapDTO(updated));
     } catch (e) {
-      return fail(`Failed to update recurring invoice: ${(e as Error).message}`);
+      return fail(
+        `Failed to update recurring invoice: ${(e as Error).message}`,
+      );
     }
   }
 
   // DELETE /api/recurring-invoices/:id
   async remove(id: bigint, user: AuthUser): Promise<ResponseObject> {
     try {
-      const rec = await this.prisma.recurringinvoices.findUnique({ where: { id } });
+      const rec = await this.prisma.recurringinvoices.findUnique({
+        where: { id },
+      });
       if (!rec) return fail('Recurring invoice not found');
-      if (!(await this.ownsBusiness(rec.business_id, user))) return fail('Access denied');
+      if (!(await this.ownsBusiness(rec.business_id, user)))
+        return fail('Access denied');
       await this.prisma.recurringinvoices.delete({ where: { id } });
       if (rec.invoice_id) {
-        await this.prisma.invoices.update({ where: { id: rec.invoice_id }, data: { is_recurring: false } }).catch(() => {});
+        await this.prisma.invoices
+          .update({
+            where: { id: rec.invoice_id },
+            data: { is_recurring: false },
+          })
+          .catch(() => {});
       }
       return ok('Recurring invoice deleted successfully');
     } catch (e) {
-      return fail(`Failed to delete recurring invoice: ${(e as Error).message}`);
+      return fail(
+        `Failed to delete recurring invoice: ${(e as Error).message}`,
+      );
     }
   }
 
-  async setActive(id: bigint, active: boolean, user: AuthUser): Promise<ResponseObject> {
-    const rec = await this.prisma.recurringinvoices.findUnique({ where: { id } });
+  async setActive(
+    id: bigint,
+    active: boolean,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
+    const rec = await this.prisma.recurringinvoices.findUnique({
+      where: { id },
+    });
     if (!rec) return fail('Recurring invoice not found');
-    if (!(await this.ownsBusiness(rec.business_id, user))) return fail('Access denied');
-    const updated = await this.prisma.recurringinvoices.update({ where: { id }, data: { is_active: active } });
-    return ok(active ? 'Recurring invoice resumed' : 'Recurring invoice paused', this.mapDTO(updated));
+    if (!(await this.ownsBusiness(rec.business_id, user)))
+      return fail('Access denied');
+    const updated = await this.prisma.recurringinvoices.update({
+      where: { id },
+      data: { is_active: active },
+    });
+    return ok(
+      active ? 'Recurring invoice resumed' : 'Recurring invoice paused',
+      this.mapDTO(updated),
+    );
   }
 
   private async invoiceNumber(): Promise<string> {
@@ -220,7 +286,11 @@ export class RecurringInvoiceService {
           })),
         },
       },
-      include: { customers: true, businesses: true, invoice_items: { include: { products: true } } },
+      include: {
+        customers: true,
+        businesses: true,
+        invoice_items: { include: { products: true } },
+      },
     });
   }
 
@@ -239,11 +309,20 @@ export class RecurringInvoiceService {
       try {
         if (!r.invoice_id) continue;
         if (r.end_date && now > r.end_date) {
-          await this.prisma.recurringinvoices.update({ where: { id: r.id }, data: { is_active: false } });
+          await this.prisma.recurringinvoices.update({
+            where: { id: r.id },
+            data: { is_active: false },
+          });
           continue;
         }
-        if (r.max_occurrences != null && (r.generated_count ?? 0) >= r.max_occurrences) {
-          await this.prisma.recurringinvoices.update({ where: { id: r.id }, data: { is_active: false } });
+        if (
+          r.max_occurrences != null &&
+          (r.generated_count ?? 0) >= r.max_occurrences
+        ) {
+          await this.prisma.recurringinvoices.update({
+            where: { id: r.id },
+            data: { is_active: false },
+          });
           continue;
         }
         const created = await this.cloneInvoice(r.invoice_id);
@@ -256,7 +335,9 @@ export class RecurringInvoiceService {
           await this.email.sendInvoiceEmail({
             to: created.customers.email,
             customerName:
-              [created.customers.first_name, created.customers.last_name].filter(Boolean).join(' ') || '',
+              [created.customers.first_name, created.customers.last_name]
+                .filter(Boolean)
+                .join(' ') || '',
             businessName: created.businesses.business_name ?? 'your supplier',
             businessEmail: created.businesses.business_email ?? null,
             invoiceNumber: created.invoice_number ?? '',
@@ -278,13 +359,21 @@ export class RecurringInvoiceService {
               };
             }),
           });
-          await this.prisma.invoices.update({ where: { id: created.id }, data: { invoice_status: 'sent' } });
+          await this.prisma.invoices.update({
+            where: { id: created.id },
+            data: { invoice_status: 'sent' },
+          });
         }
 
-        const next = this.advance(r.next_invoice_date ?? now, r.frequency, r.day_of_month);
+        const next = this.advance(
+          r.next_invoice_date ?? now,
+          r.frequency,
+          r.day_of_month,
+        );
         const newCount = (r.generated_count ?? 0) + 1;
         const stop =
-          (r.max_occurrences != null && newCount >= r.max_occurrences) || (r.end_date != null && next > r.end_date);
+          (r.max_occurrences != null && newCount >= r.max_occurrences) ||
+          (r.end_date != null && next > r.end_date);
         await this.prisma.recurringinvoices.update({
           where: { id: r.id },
           data: {
@@ -294,12 +383,19 @@ export class RecurringInvoiceService {
             is_active: !stop,
           },
         });
-        this.logger.log(`Generated invoice ${created.invoice_number} from recurring #${r.id}`);
+        this.logger.log(
+          `Generated invoice ${created.invoice_number} from recurring #${r.id}`,
+        );
       } catch (e) {
-        this.logger.error(`Recurring #${r.id} generation failed: ${(e as Error).message}`);
+        this.logger.error(
+          `Recurring #${r.id} generation failed: ${(e as Error).message}`,
+        );
       }
     }
-    if (due.length) this.logger.log(`Recurring run complete: ${generated}/${due.length} generated`);
+    if (due.length)
+      this.logger.log(
+        `Recurring run complete: ${generated}/${due.length} generated`,
+      );
     return { generated };
   }
 }

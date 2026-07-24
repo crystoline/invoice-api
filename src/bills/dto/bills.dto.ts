@@ -1,5 +1,12 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  ValidateNested,
+} from 'class-validator';
 
 export class BillItemDto {
   @IsOptional() @IsNumber() price?: number;
@@ -16,5 +23,9 @@ export class BillRequestDto {
   @IsOptional() @IsNumber() vendorId?: number;
   @IsOptional() @IsNumber() VendorIdOrUserId?: number; // legacy — ignored
   @IsOptional() @IsNumber() billedUserId?: number; // legacy — ignored (derived from the current user)
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => BillItemDto) items?: BillItemDto[];
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BillItemDto)
+  items?: BillItemDto[];
 }

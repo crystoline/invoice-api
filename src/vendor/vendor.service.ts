@@ -4,7 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { VendorRequestDto, VendorProductRequestDto } from './dto/vendor.dto';
 
-const num = (d: Prisma.Decimal | null): number | null => (d != null ? Number(d) : null);
+const num = (d: Prisma.Decimal | null): number | null =>
+  d != null ? Number(d) : null;
 
 @Injectable()
 export class VendorService {
@@ -27,10 +28,15 @@ export class VendorService {
   // 4.1
   async createVendor(dto: VendorRequestDto): Promise<ResponseObject> {
     try {
-      if (dto.email && (await this.prisma.vendors.findFirst({ where: { email: dto.email } }))) {
+      if (
+        dto.email &&
+        (await this.prisma.vendors.findFirst({ where: { email: dto.email } }))
+      ) {
         return fail('This email is already registered as a vendor');
       }
-      const v = await this.prisma.vendors.create({ data: { email: dto.email, name: dto.name, status: dto.status } });
+      const v = await this.prisma.vendors.create({
+        data: { email: dto.email, name: dto.name, status: dto.status },
+      });
       return ok('Vendor added successfully', this.mapVendor(v));
     } catch (e) {
       return fail(`Failed  to add Vendor: ${(e as Error).message}`);
@@ -40,7 +46,10 @@ export class VendorService {
   // 4.2 — clean list path (fixed double-setResponseCode → proper 00)
   async getAllVendors(): Promise<ResponseObject> {
     const all = await this.prisma.vendors.findMany();
-    return ok('Vendors fetched successfully', all.map((v) => this.mapVendor(v)));
+    return ok(
+      'Vendors fetched successfully',
+      all.map((v) => this.mapVendor(v)),
+    );
   }
 
   // 4.3
@@ -55,7 +64,10 @@ export class VendorService {
   }
 
   // 4.4
-  async updateVendor(id: bigint, dto: VendorRequestDto): Promise<ResponseObject> {
+  async updateVendor(
+    id: bigint,
+    dto: VendorRequestDto,
+  ): Promise<ResponseObject> {
     try {
       const updated = await this.prisma.vendors.update({
         where: { id },
@@ -74,9 +86,14 @@ export class VendorService {
   }
 
   // 4.6 — owning side set (fixes legacy NPE)
-  async addVendorProduct(vendorId: bigint, dto: VendorProductRequestDto): Promise<ResponseObject> {
+  async addVendorProduct(
+    vendorId: bigint,
+    dto: VendorProductRequestDto,
+  ): Promise<ResponseObject> {
     try {
-      const vendor = await this.prisma.vendors.findUnique({ where: { id: vendorId } });
+      const vendor = await this.prisma.vendors.findUnique({
+        where: { id: vendorId },
+      });
       if (!vendor) throw new Error('Vendor not found');
       const vp = await this.prisma.vendor_products.create({
         data: {
@@ -94,12 +111,20 @@ export class VendorService {
 
   // 4.7 — fixed double-setResponseCode
   async getVendorProductsByVendorId(vendorId: bigint): Promise<ResponseObject> {
-    const items = await this.prisma.vendor_products.findMany({ where: { vendor_id: vendorId } });
-    return ok("Vendor's products fetched successfully", items.map((vp) => this.mapVendorProduct(vp)));
+    const items = await this.prisma.vendor_products.findMany({
+      where: { vendor_id: vendorId },
+    });
+    return ok(
+      "Vendor's products fetched successfully",
+      items.map((vp) => this.mapVendorProduct(vp)),
+    );
   }
 
   // 4.8 — path var is the vendor-PRODUCT id
-  async updateVendorProduct(vendorProductId: bigint, dto: VendorProductRequestDto): Promise<ResponseObject> {
+  async updateVendorProduct(
+    vendorProductId: bigint,
+    dto: VendorProductRequestDto,
+  ): Promise<ResponseObject> {
     try {
       const updated = await this.prisma.vendor_products.update({
         where: { id: vendorProductId },
@@ -109,7 +134,10 @@ export class VendorService {
           vendor_product_status: dto.vendorProductStatus,
         },
       });
-      return ok('Vendor product updated successfully', this.mapVendorProduct(updated));
+      return ok(
+        'Vendor product updated successfully',
+        this.mapVendorProduct(updated),
+      );
     } catch (e) {
       return fail(`Failed  to update vendor product: ${(e as Error).message}`);
     }
@@ -118,7 +146,9 @@ export class VendorService {
   // 4.9 — returns a DTO (not the raw recursive entity)
   async toggleVendor(vendorId: bigint): Promise<ResponseObject> {
     try {
-      const vendor = await this.prisma.vendors.findUnique({ where: { id: vendorId } });
+      const vendor = await this.prisma.vendors.findUnique({
+        where: { id: vendorId },
+      });
       if (!vendor) throw new Error('Vendor not found');
       const updated = await this.prisma.vendors.update({
         where: { id: vendorId },

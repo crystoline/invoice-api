@@ -2,7 +2,10 @@ import { Body, Controller, Param, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuthService } from './auth.service';
 import { Public } from '../common/decorators/public.decorator';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 import { Role } from '../common/enums/role.enum';
 import { fail } from '../common/dto/response-object';
 import { SignupDto, LoginDto, ChangePasswordEmailDto } from './dto/auth.dto';
@@ -34,10 +37,15 @@ export class AuthController {
   // #3 — login; also mirrors the legacy Authorization response header.
   @Public()
   @Post('login')
-  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() dto: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const result = await this.auth.login(dto);
     // Absent when 2FA is on — that response carries a challenge, not a session.
-    const authHeader = (result.headers as { Authorization?: string[] } | undefined)?.Authorization?.[0];
+    const authHeader = (
+      result.headers as { Authorization?: string[] } | undefined
+    )?.Authorization?.[0];
     if (authHeader) res.setHeader('Authorization', authHeader);
     return result;
   }

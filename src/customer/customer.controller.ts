@@ -1,6 +1,18 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { CustomerService } from './customer.service';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 import { CustomerRequestDto } from './dto/customer.dto';
 
 /** CustomerController — `/api/customers`. All ops are owner-scoped by businessId. */
@@ -9,7 +21,11 @@ export class CustomerController {
   constructor(private readonly customers: CustomerService) {}
 
   @Post(':businessId/customer')
-  create(@Param('businessId') businessId: string, @Body() dto: CustomerRequestDto, @CurrentUser() user: AuthUser) {
+  create(
+    @Param('businessId') businessId: string,
+    @Body() dto: CustomerRequestDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.customers.createCustomer(BigInt(businessId), dto, user);
   }
 
@@ -25,12 +41,25 @@ export class CustomerController {
     @Query('size') size = '10',
     @CurrentUser() user: AuthUser,
   ) {
-    return this.customers.getBusinessCustomersPaginated(BigInt(businessId), Number(page) || 0, Number(size) || 10, user);
+    return this.customers.getBusinessCustomersPaginated(
+      BigInt(businessId),
+      Number(page) || 0,
+      Number(size) || 10,
+      user,
+    );
   }
 
   @Get(':businessId/:customerId')
-  getOne(@Param('businessId') businessId: string, @Param('customerId') customerId: string, @CurrentUser() user: AuthUser) {
-    return this.customers.getBusinessCustomer(BigInt(businessId), BigInt(customerId), user);
+  getOne(
+    @Param('businessId') businessId: string,
+    @Param('customerId') customerId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.customers.getBusinessCustomer(
+      BigInt(businessId),
+      BigInt(customerId),
+      user,
+    );
   }
 
   @Put(':businessId/:customerId')
@@ -40,11 +69,24 @@ export class CustomerController {
     @Body() dto: CustomerRequestDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.customers.updateCustomer(BigInt(businessId), BigInt(customerId), dto, user);
+    return this.customers.updateCustomer(
+      BigInt(businessId),
+      BigInt(customerId),
+      dto,
+      user,
+    );
   }
 
   @Delete(':businessId/:customerId')
-  remove(@Param('businessId') businessId: string, @Param('customerId') customerId: string, @CurrentUser() user: AuthUser) {
-    return this.customers.deleteCustomer(BigInt(businessId), BigInt(customerId), user);
+  remove(
+    @Param('businessId') businessId: string,
+    @Param('customerId') customerId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.customers.deleteCustomer(
+      BigInt(businessId),
+      BigInt(customerId),
+      user,
+    );
   }
 }

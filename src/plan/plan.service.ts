@@ -19,9 +19,24 @@ export class PlanService implements OnModuleInit {
     if (count === 0) {
       await this.prisma.plans.createMany({
         data: [
-          { name: 'Basic', description: 'Basic subscription plan', price: 10000, duration_in_days: 30 },
-          { name: 'Standard', description: 'Standard subscription plan', price: 20000, duration_in_days: 60 },
-          { name: 'Premium', description: 'Premium subscription plan', price: 30000, duration_in_days: 90 },
+          {
+            name: 'Basic',
+            description: 'Basic subscription plan',
+            price: 10000,
+            duration_in_days: 30,
+          },
+          {
+            name: 'Standard',
+            description: 'Standard subscription plan',
+            price: 20000,
+            duration_in_days: 60,
+          },
+          {
+            name: 'Premium',
+            description: 'Premium subscription plan',
+            price: 30000,
+            duration_in_days: 90,
+          },
         ],
       });
       this.logger.log('Seeded default subscription plans.');
@@ -30,15 +45,24 @@ export class PlanService implements OnModuleInit {
 
   async subscribe(dto: SubRequestDto): Promise<ResponseObject> {
     // These loads are outside the try in the legacy → 500 on bad id. Preserved.
-    const plan = await this.prisma.plans.findUnique({ where: { id: BigInt(dto.PlanId ?? 0) } });
+    const plan = await this.prisma.plans.findUnique({
+      where: { id: BigInt(dto.PlanId ?? 0) },
+    });
     if (!plan) throw new Error('Plan not found');
-    const user = await this.prisma.users.findUnique({ where: { id: BigInt(dto.UserId ?? 0) } });
+    const user = await this.prisma.users.findUnique({
+      where: { id: BigInt(dto.UserId ?? 0) },
+    });
     if (!user) throw new Error('User not found');
     try {
-      const paymentUrl = await this.paystack.initializePayment(user.email ?? '', plan.price ?? 0);
+      const paymentUrl = await this.paystack.initializePayment(
+        user.email ?? '',
+        plan.price ?? 0,
+      );
       if (!paymentUrl) throw new Error('Payment failed');
       const now = new Date();
-      const end = new Date(now.getTime() + (plan.duration_in_days ?? 0) * 24 * 60 * 60 * 1000);
+      const end = new Date(
+        now.getTime() + (plan.duration_in_days ?? 0) * 24 * 60 * 60 * 1000,
+      );
       await this.prisma.subscriptions.create({
         data: {
           user_id: user.id,
@@ -51,7 +75,10 @@ export class PlanService implements OnModuleInit {
           is_cancelled: false,
         },
       });
-      return ok('Use the payment url to complete your subscription.', paymentUrl);
+      return ok(
+        'Use the payment url to complete your subscription.',
+        paymentUrl,
+      );
     } catch (e) {
       return fail(`Subscription Failed ${(e as Error).message}`);
     }

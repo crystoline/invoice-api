@@ -10,10 +10,25 @@ import { Role } from '../common/enums/role.enum';
 import { mapProductEntity } from '../product/product.mapper';
 import { InvoiceRequestDto, InvoiceApprovalDto } from './dto/invoice.dto';
 
-const CURRENCY_CODES = ['NGN', 'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'CNY', 'INR'];
+const CURRENCY_CODES = [
+  'NGN',
+  'USD',
+  'EUR',
+  'GBP',
+  'JPY',
+  'AUD',
+  'CAD',
+  'CHF',
+  'CNY',
+  'INR',
+];
 
-const invoiceInclude = { invoice_items: { include: { products: true } } } satisfies Prisma.invoicesInclude;
-type InvoiceWithItems = Prisma.invoicesGetPayload<{ include: typeof invoiceInclude }>;
+const invoiceInclude = {
+  invoice_items: { include: { products: true } },
+} satisfies Prisma.invoicesInclude;
+type InvoiceWithItems = Prisma.invoicesGetPayload<{
+  include: typeof invoiceInclude;
+}>;
 
 // Everything the PDF/email templates need: items plus the two parties.
 const invoiceWithRelationsInclude = {
@@ -21,9 +36,12 @@ const invoiceWithRelationsInclude = {
   businesses: true,
   customers: true,
 } satisfies Prisma.invoicesInclude;
-type InvoiceWithRelations = Prisma.invoicesGetPayload<{ include: typeof invoiceWithRelationsInclude }>;
+type InvoiceWithRelations = Prisma.invoicesGetPayload<{
+  include: typeof invoiceWithRelationsInclude;
+}>;
 
-const num = (d: Prisma.Decimal | null): number | null => (d != null ? Number(d) : null);
+const num = (d: Prisma.Decimal | null): number | null =>
+  d != null ? Number(d) : null;
 
 @Injectable()
 export class InvoiceService {
@@ -46,7 +64,10 @@ export class InvoiceService {
    * Pass a business that was loaded with `business_members` included.
    */
   private isOwnerMemberOrAdmin(
-    biz: { owner_id: bigint | null; business_members?: { user_id: bigint }[] } | null,
+    biz: {
+      owner_id: bigint | null;
+      business_members?: { user_id: bigint }[];
+    } | null,
     user: AuthUser,
   ): boolean {
     if (!biz) return false;
@@ -103,18 +124,30 @@ export class InvoiceService {
   private async buildItemsAndTotal(
     items: InvoiceRequestDto['items'],
     businessId: bigint,
-  ): Promise<{ itemsData: { product_id: bigint; quantity: number; discount: bigint }[]; total: number }> {
+  ): Promise<{
+    itemsData: { product_id: bigint; quantity: number; discount: bigint }[];
+    total: number;
+  }> {
     let total = 0;
-    const itemsData: { product_id: bigint; quantity: number; discount: bigint }[] = [];
+    const itemsData: {
+      product_id: bigint;
+      quantity: number;
+      discount: bigint;
+    }[] = [];
     for (const it of items ?? []) {
       let productId: bigint;
       let unitPrice: number;
       if (it.productId != null) {
-        const product = await this.prisma.products.findUnique({ where: { id: BigInt(it.productId) } });
+        const product = await this.prisma.products.findUnique({
+          where: { id: BigInt(it.productId) },
+        });
         if (!product) throw new Error('Product not found');
         unitPrice = Number(product.unit_price ?? 0);
         if (it.unitPrice != null && Number(it.unitPrice) !== unitPrice) {
-          await this.prisma.products.update({ where: { id: product.id }, data: { unit_price: it.unitPrice } });
+          await this.prisma.products.update({
+            where: { id: product.id },
+            data: { unit_price: it.unitPrice },
+          });
           unitPrice = Number(it.unitPrice);
         }
         productId = product.id;
@@ -136,15 +169,25 @@ export class InvoiceService {
       const pct = it.discount ?? 0;
       const qtyPrice = qty * unitPrice;
       total += qtyPrice - (qtyPrice * pct) / 100;
-      itemsData.push({ product_id: productId, quantity: qty, discount: BigInt(Math.trunc(pct)) });
+      itemsData.push({
+        product_id: productId,
+        quantity: qty,
+        discount: BigInt(Math.trunc(pct)),
+      });
     }
     return { itemsData, total };
   }
 
   // 3.1 — verified + owner
-  async createInvoice(dto: InvoiceRequestDto, user: AuthUser): Promise<ResponseObject> {
-    const dbUser = await this.prisma.users.findUnique({ where: { id: user.id } });
-    if (!dbUser?.verified) return fail('Please verify your account to be able to create an invoice');
+  async createInvoice(
+    dto: InvoiceRequestDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
+    const dbUser = await this.prisma.users.findUnique({
+      where: { id: user.id },
+    });
+    if (!dbUser?.verified)
+      return fail('Please verify your account to be able to create an invoice');
     const business = await this.prisma.businesses.findUnique({
       where: { id: BigInt(dto.businessId ?? 0) },
       include: { customers: true, business_members: true },
@@ -152,16 +195,24 @@ export class InvoiceService {
     if (!business) throw new Error('Business not found');
     // Maker step: owner or any team member may draft an invoice.
     if (!this.isOwnerMemberOrAdmin(business, user)) {
-      return fail('You do not have permission to create an invoice for this business');
+      return fail(
+        'You do not have permission to create an invoice for this business',
+      );
     }
-    const customer = await this.prisma.customers.findUnique({ where: { id: BigInt(dto.customerId ?? 0) } });
+    const customer = await this.prisma.customers.findUnique({
+      where: { id: BigInt(dto.customerId ?? 0) },
+    });
     if (!customer) throw new Error('Customer not found');
     if (!business.customers.some((c) => c.email === customer.email)) {
       return fail('Customer does not belong to the specified business');
     }
-    if (customer.business_id !== business.id) return fail('Customer does not belong to the specified business');
+    if (customer.business_id !== business.id)
+      return fail('Customer does not belong to the specified business');
     try {
-      const { itemsData, total } = await this.buildItemsAndTotal(dto.items, business.id);
+      const { itemsData, total } = await this.buildItemsAndTotal(
+        dto.items,
+        business.id,
+      );
       const invoice = await this.prisma.invoices.create({
         data: {
           invoice_number: await this.generateInvoiceNumber(),
@@ -186,16 +237,25 @@ export class InvoiceService {
   }
 
   // 3.2 — owner or admin
-  async getBusinessInvoices(businessId: bigint, user: AuthUser): Promise<ResponseObject> {
+  async getBusinessInvoices(
+    businessId: bigint,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       const business = await this.prisma.businesses.findUnique({
         where: { id: businessId },
-        include: { invoices: { include: invoiceInclude }, business_members: true },
+        include: {
+          invoices: { include: invoiceInclude },
+          business_members: true,
+        },
       });
       if (!business) throw new Error('Business not found');
       // Owner, team members and admins can all view the business's invoices.
       if (this.isOwnerMemberOrAdmin(business, user)) {
-        return ok('Business Invoices fetched successfully', business.invoices.map((i) => this.mapInvoice(i)));
+        return ok(
+          'Business Invoices fetched successfully',
+          business.invoices.map((i) => this.mapInvoice(i)),
+        );
       }
       return fail('You do not have access to this business invoices');
     } catch (e) {
@@ -204,26 +264,49 @@ export class InvoiceService {
   }
 
   // 3.3 — owner; not sent/approved
-  async updateInvoice(invoiceId: bigint, dto: InvoiceRequestDto, user: AuthUser): Promise<ResponseObject> {
-    const invoice = await this.prisma.invoices.findUnique({ where: { id: invoiceId } });
+  async updateInvoice(
+    invoiceId: bigint,
+    dto: InvoiceRequestDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
+    const invoice = await this.prisma.invoices.findUnique({
+      where: { id: invoiceId },
+    });
     if (!invoice) throw new Error('Invoice not found');
-    if (invoice.invoice_status === 'sent' || invoice.approval_status === 'approved') {
-      return fail('You can no longer edit this invoice, invoice is  already sent or approved');
+    if (
+      invoice.invoice_status === 'sent' ||
+      invoice.approval_status === 'approved'
+    ) {
+      return fail(
+        'You can no longer edit this invoice, invoice is  already sent or approved',
+      );
     }
-    const business = await this.prisma.businesses.findUnique({ where: { id: BigInt(dto.businessId ?? 0) } });
+    const business = await this.prisma.businesses.findUnique({
+      where: { id: BigInt(dto.businessId ?? 0) },
+    });
     if (!business) throw new Error('Business not found');
-    if (business.owner_id !== user.id) throw new Error('You do not have permission to update this invoice');
-    const customer = await this.prisma.customers.findUnique({ where: { id: BigInt(dto.customerId ?? 0) } });
+    if (business.owner_id !== user.id)
+      throw new Error('You do not have permission to update this invoice');
+    const customer = await this.prisma.customers.findUnique({
+      where: { id: BigInt(dto.customerId ?? 0) },
+    });
     if (!customer) throw new Error('Customer not found');
-    if (customer.business_id !== business.id) return fail('Customer does not belong to the specified business');
+    if (customer.business_id !== business.id)
+      return fail('Customer does not belong to the specified business');
     try {
-      const { itemsData, total } = await this.buildItemsAndTotal(dto.items, business.id);
-      await this.prisma.invoice_items.deleteMany({ where: { invoice_id: invoiceId } });
+      const { itemsData, total } = await this.buildItemsAndTotal(
+        dto.items,
+        business.id,
+      );
+      await this.prisma.invoice_items.deleteMany({
+        where: { invoice_id: invoiceId },
+      });
       const updated = await this.prisma.invoices.update({
         where: { id: invoiceId },
         data: {
           invoice_date: new Date(),
-          is_recurring: dto.isRecurring ?? dto.recurring ?? invoice.is_recurring,
+          is_recurring:
+            dto.isRecurring ?? dto.recurring ?? invoice.is_recurring,
           frequency: dto.frequency,
           total_amount: total,
           invoice_items: { create: itemsData },
@@ -237,14 +320,30 @@ export class InvoiceService {
   }
 
   // 3.4 — admin
-  async getAllInvoicesInPagination(page: number, size: number, user: AuthUser): Promise<ResponseObject> {
+  async getAllInvoicesInPagination(
+    page: number,
+    size: number,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     if (!this.isAdmin(user)) return fail('Only Admin privilege');
     try {
       const [items, total] = await this.prisma.$transaction([
-        this.prisma.invoices.findMany({ skip: page * size, take: size, include: invoiceInclude }),
+        this.prisma.invoices.findMany({
+          skip: page * size,
+          take: size,
+          include: invoiceInclude,
+        }),
         this.prisma.invoices.count(),
       ]);
-      return ok('Paged Invoices fetched successfully', toSpringPage(items.map((i) => this.mapInvoice(i)), page, size, total));
+      return ok(
+        'Paged Invoices fetched successfully',
+        toSpringPage(
+          items.map((i) => this.mapInvoice(i)),
+          page,
+          size,
+          total,
+        ),
+      );
     } catch (e) {
       return fail(`Failed to fetch paged invoices: ${(e as Error).message}`);
     }
@@ -257,7 +356,8 @@ export class InvoiceService {
     });
     if (!invoice) throw new Error('Invoice not found');
     const isOwner = invoice.businesses.owner_id === user.id;
-    if (!isOwner && !this.isAdmin(user)) throw new ForbiddenException('You do not have access to this invoice');
+    if (!isOwner && !this.isAdmin(user))
+      throw new ForbiddenException('You do not have access to this invoice');
     return invoice;
   }
 
@@ -277,11 +377,16 @@ export class InvoiceService {
   }
 
   // 3.7 — checker step: owner or admin only (a maker cannot approve their own work)
-  async approveInvoice(dto: InvoiceApprovalDto, user: AuthUser): Promise<ResponseObject> {
+  async approveInvoice(
+    dto: InvoiceApprovalDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       const status = (dto.approvalStatus ?? 'approved').toLowerCase();
       if (!['approved', 'rejected', 'pending'].includes(status)) {
-        return fail('Invalid approval status. Use approved, rejected or pending.');
+        return fail(
+          'Invalid approval status. Use approved, rejected or pending.',
+        );
       }
       const invoice = await this.prisma.invoices.findUnique({
         where: { id: BigInt(dto.invoiceId ?? 0) },
@@ -293,14 +398,21 @@ export class InvoiceService {
         throw new Error('Only the business owner can approve this invoice');
       }
       if (invoice.invoice_status === 'sent') {
-        return fail('This invoice has already been sent and can no longer be re-approved.');
+        return fail(
+          'This invoice has already been sent and can no longer be re-approved.',
+        );
       }
       const updated = await this.prisma.invoices.update({
         where: { id: invoice.id },
         data: { approval_status: status },
         include: invoiceInclude,
       });
-      const verb = status === 'rejected' ? 'rejected' : status === 'pending' ? 'reset to pending' : 'approved';
+      const verb =
+        status === 'rejected'
+          ? 'rejected'
+          : status === 'pending'
+            ? 'reset to pending'
+            : 'approved';
       return ok(`Invoice ${verb} successfully`, this.mapInvoice(updated));
     } catch (e) {
       return fail(`Failed  to approve Invoice: ${(e as Error).message}`);
@@ -308,7 +420,10 @@ export class InvoiceService {
   }
 
   // 3.8 — maker (owner/member/admin) may send, but only once the checker approved
-  async sendInvoice(invoiceId: bigint, user: AuthUser): Promise<ResponseObject> {
+  async sendInvoice(
+    invoiceId: bigint,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     const invoice = await this.prisma.invoices.findUnique({
       where: { id: invoiceId },
       include: {
@@ -319,14 +434,20 @@ export class InvoiceService {
     });
     if (!invoice) throw new Error('Invoice not found');
     if (!this.isOwnerMemberOrAdmin(invoice.businesses, user)) {
-      return fail('Failed  to send Invoice. You do not have access to this business.');
+      return fail(
+        'Failed  to send Invoice. You do not have access to this business.',
+      );
     }
     if (invoice.approval_status !== 'approved') {
-      return fail('Failed  to send Invoice. Invoice must be approved before it can be sent  ');
+      return fail(
+        'Failed  to send Invoice. Invoice must be approved before it can be sent  ',
+      );
     }
     const recipient = invoice.customers?.email;
     if (!recipient) {
-      return fail('Failed  to send Invoice. This customer has no email address on file.');
+      return fail(
+        'Failed  to send Invoice. This customer has no email address on file.',
+      );
     }
     try {
       const model = this.toPdfModel(invoice);
@@ -337,7 +458,9 @@ export class InvoiceService {
       try {
         pdf = await this.pdf.generateDefaultTemplatePdf(model);
       } catch (e) {
-        this.logger.warn(`Invoice ${invoice.invoice_number}: PDF attachment skipped — ${(e as Error).message}`);
+        this.logger.warn(
+          `Invoice ${invoice.invoice_number}: PDF attachment skipped — ${(e as Error).message}`,
+        );
       }
 
       await this.email.sendInvoiceEmail({
@@ -360,7 +483,10 @@ export class InvoiceService {
         pdf,
       });
 
-      await this.prisma.invoices.update({ where: { id: invoice.id }, data: { invoice_status: 'sent' } });
+      await this.prisma.invoices.update({
+        where: { id: invoice.id },
+        data: { invoice_status: 'sent' },
+      });
       // NOTE: legacy B2B bill side-effect (generateBillFromInvoice/appendP2Pbill) intentionally omitted.
       return ok('Invoice sent successfully', 'Email sent successfully');
     } catch (e) {
@@ -387,12 +513,15 @@ export class InvoiceService {
       };
     });
     const subtotal = items.reduce((sum, it) => sum + it.gross, 0);
-    const discountTotal = subtotal - items.reduce((sum, it) => sum + it.amount, 0);
+    const discountTotal =
+      subtotal - items.reduce((sum, it) => sum + it.amount, 0);
     const totalAmount = num(inv.total_amount) ?? 0;
     const amountPaid = num(inv.amount_paid) ?? 0;
 
     const customerName =
-      [inv.customers?.first_name, inv.customers?.last_name].filter(Boolean).join(' ') || null;
+      [inv.customers?.first_name, inv.customers?.last_name]
+        .filter(Boolean)
+        .join(' ') || null;
 
     return {
       invoiceNumber: inv.invoice_number,
@@ -438,7 +567,10 @@ export class InvoiceService {
 
   // DELETE /invoices/invoice/delete/:id — the frontend calls this (was a 404).
   // Owner-or-admin; cleans up items and any recurring schedule referencing it.
-  async deleteInvoice(invoiceId: bigint, user: AuthUser): Promise<ResponseObject> {
+  async deleteInvoice(
+    invoiceId: bigint,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       const invoice = await this.prisma.invoices.findUnique({
         where: { id: invoiceId },
@@ -448,8 +580,12 @@ export class InvoiceService {
       if (invoice.businesses.owner_id !== user.id && !this.isAdmin(user)) {
         return fail('You do not have permission to delete this invoice');
       }
-      await this.prisma.recurringinvoices.deleteMany({ where: { invoice_id: invoiceId } });
-      await this.prisma.invoice_items.deleteMany({ where: { invoice_id: invoiceId } });
+      await this.prisma.recurringinvoices.deleteMany({
+        where: { invoice_id: invoiceId },
+      });
+      await this.prisma.invoice_items.deleteMany({
+        where: { invoice_id: invoiceId },
+      });
       await this.prisma.invoices.delete({ where: { id: invoiceId } });
       return ok('Invoice deleted successfully');
     } catch (e) {
@@ -458,14 +594,18 @@ export class InvoiceService {
   }
 
   // POST /invoices/invoice/duplicate/:id — clone an invoice into a new draft.
-  async duplicateInvoice(invoiceId: bigint, user: AuthUser): Promise<ResponseObject> {
+  async duplicateInvoice(
+    invoiceId: bigint,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       const src = await this.prisma.invoices.findUnique({
         where: { id: invoiceId },
         include: { invoice_items: true, businesses: true },
       });
       if (!src) return fail('Invoice not found');
-      if (src.businesses.owner_id !== user.id && !this.isAdmin(user)) return fail('Access denied');
+      if (src.businesses.owner_id !== user.id && !this.isAdmin(user))
+        return fail('Access denied');
       const dup = await this.prisma.invoices.create({
         data: {
           invoice_number: await this.generateInvoiceNumber(),
@@ -495,4 +635,3 @@ export class InvoiceService {
     }
   }
 }
-

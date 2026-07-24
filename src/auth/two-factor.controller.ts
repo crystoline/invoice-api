@@ -2,7 +2,10 @@ import { Body, Controller, Get, Post, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { TwoFactorService } from './two-factor.service';
 import { AuthService } from './auth.service';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
 import { TwoFactorCodeDto, TwoFactorLoginDto } from './dto/two-factor.dto';
 
@@ -49,9 +52,14 @@ export class TwoFactorController {
   /** Second leg of login — exchanges the challenge token + code for a session. */
   @Public()
   @Post('login')
-  async login(@Body() dto: TwoFactorLoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() dto: TwoFactorLoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const result = await this.auth.completeTwoFactorLogin(dto);
-    const authHeader = (result.headers as { Authorization?: string[] } | undefined)?.Authorization?.[0];
+    const authHeader = (
+      result.headers as { Authorization?: string[] } | undefined
+    )?.Authorization?.[0];
     if (authHeader) res.setHeader('Authorization', authHeader);
     return result;
   }

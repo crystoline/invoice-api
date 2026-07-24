@@ -1,4 +1,10 @@
-import { IsBoolean, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 const FREQ = ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUALLY'];
 

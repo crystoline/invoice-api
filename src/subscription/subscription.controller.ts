@@ -1,6 +1,9 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 import { SubscribeDto, ChangePlanDto } from './dto/subscription.dto';
 
 /** SubscriptionController — `/api/subscription`. */

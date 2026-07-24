@@ -1,10 +1,28 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { UserService } from './user.service';
 import { Public } from '../common/decorators/public.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 import { Role } from '../common/enums/role.enum';
-import { UpdateUserDto, ChangePasswordEmailDto, ChangePasswordDto, UpdateProfileDto, ChangeOwnPasswordDto } from './dto/auth.dto';
+import {
+  UpdateUserDto,
+  ChangePasswordEmailDto,
+  ChangePasswordDto,
+  UpdateProfileDto,
+  ChangeOwnPasswordDto,
+} from './dto/auth.dto';
 
 /**
  * UserController — shares the `/api/auth` prefix with AuthController (as in
@@ -27,7 +45,10 @@ export class UserController {
   // #7
   @Get('paginated-users')
   paginated(@Query('page') page = '0', @Query('size') size = '10') {
-    return this.users.getAllUsersPaginated(Number(page) || 0, Number(size) || 10);
+    return this.users.getAllUsersPaginated(
+      Number(page) || 0,
+      Number(size) || 10,
+    );
   }
 
   // #8
@@ -44,7 +65,11 @@ export class UserController {
 
   // #10
   @Put('update-user/:userId')
-  updateUser(@Param('userId') userId: string, @Body() dto: UpdateUserDto, @CurrentUser() user: AuthUser) {
+  updateUser(
+    @Param('userId') userId: string,
+    @Body() dto: UpdateUserDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.users.updateUser(BigInt(userId), dto, user);
   }
 
@@ -77,7 +102,10 @@ export class UserController {
   // #15 — public; token accepted from body or query (legacy path bug fixed).
   @Public()
   @Post('confirm-password-reset')
-  confirmPasswordReset(@Body() dto: ChangePasswordDto, @Query('token') token?: string) {
+  confirmPasswordReset(
+    @Body() dto: ChangePasswordDto,
+    @Query('token') token?: string,
+  ) {
     if (!dto.token && token) dto.token = token;
     return this.users.changePassword(dto);
   }
@@ -90,7 +118,10 @@ export class UserController {
 
   // Self-service — change the current user's password (knowing the current one).
   @Post('change-password')
-  changeOwnPassword(@Body() dto: ChangeOwnPasswordDto, @CurrentUser() user: AuthUser) {
+  changeOwnPassword(
+    @Body() dto: ChangeOwnPasswordDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.users.changeOwnPassword(BigInt(user.id), dto);
   }
 

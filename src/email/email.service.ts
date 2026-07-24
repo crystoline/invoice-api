@@ -52,7 +52,7 @@ const FONT =
   "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
 /** Escape untrusted text before interpolating into HTML. */
-const esc = (v: unknown): string =>
+const esc = (v: string | number | bigint | null | undefined): string =>
   String(v ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -78,7 +78,11 @@ const formatDate = (d: Date | null): string => {
   if (!d) return '—';
   const date = new Date(d);
   if (Number.isNaN(date.getTime())) return '—';
-  return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  return date.toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 };
 
 /**
@@ -104,23 +108,29 @@ export class EmailService implements OnModuleInit {
     const pass = this.config.get<string>('ZEPTO_PASS');
     this.from = this.config.get<string>('ZEPTO_FROM') ?? 'noreply@go54.com';
     this.appName = this.config.get<string>('APP_NAME') ?? 'Invoicing';
-    this.frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+    this.frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
     if (host && user && pass) {
       const port = Number(this.config.get<string>('ZEPTO_PORT') ?? 465);
       // Port 465 = implicit TLS (connect over SSL). 587/25 = STARTTLS (plain
       // connect, then upgrade). Nodemailer's `secure` must match: true only for
       // 465. ZEPTO_SECURE can override for non-standard setups.
       const secureOverride = this.config.get<string>('ZEPTO_SECURE');
-      const secure = secureOverride != null ? secureOverride === 'true' : port === 465;
+      const secure =
+        secureOverride != null ? secureOverride === 'true' : port === 465;
       this.transporter = nodemailer.createTransport({
         host,
         port,
         secure,
         auth: { user, pass },
       });
-      this.logger.log(`SMTP configured: ${host}:${port} (secure=${secure}), from=${this.from}`);
+      this.logger.log(
+        `SMTP configured: ${host}:${port} (secure=${secure}), from=${this.from}`,
+      );
     } else {
-      this.logger.warn('SMTP not configured (ZEPTO_*): emails will be logged, not sent.');
+      this.logger.warn(
+        'SMTP not configured (ZEPTO_*): emails will be logged, not sent.',
+      );
     }
   }
 
@@ -131,11 +141,18 @@ export class EmailService implements OnModuleInit {
       await this.transporter.verify();
       this.logger.log('SMTP connection verified — emails will be sent.');
     } catch (err) {
-      this.logger.error(`SMTP verify failed — check ZEPTO_* settings: ${(err as Error).message}`);
+      this.logger.error(
+        `SMTP verify failed — check ZEPTO_* settings: ${(err as Error).message}`,
+      );
     }
   }
 
-  async sendMail(to: string, subject: string, html: string, opts: SendOptions = {}): Promise<void> {
+  async sendMail(
+    to: string,
+    subject: string,
+    html: string,
+    opts: SendOptions = {},
+  ): Promise<void> {
     if (!this.transporter) {
       this.logger.log(`[email skipped] to=${to} subject="${subject}"`);
       return;
@@ -152,13 +169,19 @@ export class EmailService implements OnModuleInit {
       });
     } catch (err) {
       // Never let a mail failure break the calling request — log and continue.
-      this.logger.error(`Failed to send email to ${to}: ${(err as Error).message}`);
+      this.logger.error(
+        `Failed to send email to ${to}: ${(err as Error).message}`,
+      );
     }
   }
 
   // ---- public templates ----------------------------------------------------
 
-  async sendVerificationEmail(to: string, firstName: string, link: string): Promise<void> {
+  async sendVerificationEmail(
+    to: string,
+    firstName: string,
+    link: string,
+  ): Promise<void> {
     const html = this.layout({
       title: 'Confirm your email address',
       preheader: `Confirm your email to finish setting up your ${this.appName} account.`,
@@ -173,7 +196,11 @@ export class EmailService implements OnModuleInit {
     });
   }
 
-  async sendPasswordEmailConfirmation(to: string, firstName: string, link: string): Promise<void> {
+  async sendPasswordEmailConfirmation(
+    to: string,
+    firstName: string,
+    link: string,
+  ): Promise<void> {
     const html = this.layout({
       title: 'Reset your password',
       preheader: `Use the link inside to choose a new ${this.appName} password.`,
@@ -208,9 +235,14 @@ export class EmailService implements OnModuleInit {
       cta: { label: 'Accept invitation', url: joinUrl },
       note: 'If you were not expecting this invitation, you can ignore this email.',
     });
-    await this.sendMail(to, `You have been invited to join ${businessName}`, html, {
-      text: `You have been invited${inviterName ? ` by ${inviterName}` : ''} to join ${businessName} on ${this.appName}.\n\nInvitation code: ${code}\n\nAccept here: ${joinUrl}`,
-    });
+    await this.sendMail(
+      to,
+      `You have been invited to join ${businessName}`,
+      html,
+      {
+        text: `You have been invited${inviterName ? ` by ${inviterName}` : ''} to join ${businessName} on ${this.appName}.\n\nInvitation code: ${code}\n\nAccept here: ${joinUrl}`,
+      },
+    );
   }
 
   /** The invoice a customer receives — itemised, with the PDF attached. */
@@ -288,7 +320,10 @@ export class EmailService implements OnModuleInit {
       `Invoice ${invoiceNumber} from ${businessName}.`,
       `Issued: ${formatDate(invoiceDate)}   Due: ${formatDate(dueDate)}`,
       '',
-      ...items.map((it) => `  ${it.name} x${it.quantity} @ ${money(it.unitPrice)} = ${money(it.amount)}`),
+      ...items.map(
+        (it) =>
+          `  ${it.name} x${it.quantity} @ ${money(it.unitPrice)} = ${money(it.amount)}`,
+      ),
       '',
       `Total: ${money(totalAmount)}`,
       ...(amountPaid > 0 ? [`Paid: ${money(amountPaid)}`] : []),
@@ -304,13 +339,24 @@ export class EmailService implements OnModuleInit {
       note: 'Thank you for your business. Reply to this email if you have any questions about this invoice.',
     });
 
-    await this.sendMail(to, `Invoice ${invoiceNumber} from ${businessName}`, html, {
-      text: textLines.filter((l) => l !== undefined).join('\n'),
-      replyTo: businessEmail || undefined,
-      attachments: pdf
-        ? [{ filename: `Invoice-${invoiceNumber}.pdf`, content: pdf, contentType: 'application/pdf' }]
-        : undefined,
-    });
+    await this.sendMail(
+      to,
+      `Invoice ${invoiceNumber} from ${businessName}`,
+      html,
+      {
+        text: textLines.filter((l) => l !== undefined).join('\n'),
+        replyTo: businessEmail || undefined,
+        attachments: pdf
+          ? [
+              {
+                filename: `Invoice-${invoiceNumber}.pdf`,
+                content: pdf,
+                contentType: 'application/pdf',
+              },
+            ]
+          : undefined,
+      },
+    );
   }
 
   // ---- layout --------------------------------------------------------------
@@ -319,7 +365,13 @@ export class EmailService implements OnModuleInit {
    * Shared shell for every email. Table-based with inline styles because Gmail
    * and Outlook strip <style> blocks and ignore flex/grid.
    */
-  private layout({ title, preheader, bodyHtml, cta, note }: LayoutOptions): string {
+  private layout({
+    title,
+    preheader,
+    bodyHtml,
+    cta,
+    note,
+  }: LayoutOptions): string {
     const year = new Date().getFullYear();
     const button = cta
       ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0">

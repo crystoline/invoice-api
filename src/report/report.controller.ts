@@ -1,7 +1,10 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ReportService } from './report.service';
 import { ReportQueryDto } from './dto/report-query.dto';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 
 /**
  * ReportController — `/api/reports`. All routes are authenticated (global JWT

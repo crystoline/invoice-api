@@ -1,5 +1,11 @@
 import { plainToInstance } from 'class-transformer';
-import { IsIn, IsNumber, IsOptional, IsString, validateSync } from 'class-validator';
+import {
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  validateSync,
+} from 'class-validator';
 
 /**
  * Runtime validation of environment variables. Mirrors the settings the Spring
@@ -58,7 +64,10 @@ export function validateEnv(config: Record<string, unknown>) {
   if (errors.length > 0) {
     throw new Error(
       `Invalid environment configuration:\n${errors
-        .map((e) => `  - ${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`)
+        .map(
+          (e) =>
+            `  - ${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`,
+        )
         .join('\n')}`,
     );
   }

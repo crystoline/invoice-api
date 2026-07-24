@@ -5,35 +5,62 @@ import { ok, fail, ResponseObject } from '../common/dto/response-object';
 
 const n = (d: Prisma.Decimal | null): number => (d != null ? Number(d) : 0);
 const pad = (x: number): string => String(x).padStart(2, '0');
-const monthKey = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
-const dayKey = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const monthKey = (d: Date): string =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+const dayKey = (d: Date): string =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const round1 = (x: number): number => Math.round(x * 10) / 10;
 // Percentage change of `cur` vs `prev`; divide-by-zero guarded to 0, rounded to 1dp.
-const pctChange = (cur: number, prev: number): number => (prev === 0 ? 0 : round1(((cur - prev) / prev) * 100));
+const pctChange = (cur: number, prev: number): number =>
+  prev === 0 ? 0 : round1(((cur - prev) / prev) * 100);
 
-type ActivityItem = { type: string; title: string; amount: number; currency: string | null; at: string };
+type ActivityItem = {
+  type: string;
+  title: string;
+  amount: number;
+  currency: string | null;
+  at: string;
+};
 type CashflowBucket = { bucket: string; income: number; expenses: number };
 
 @Injectable()
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getStats(businessId: bigint, currency?: string): Promise<ResponseObject> {
+  async getStats(
+    businessId: bigint,
+    currency?: string,
+  ): Promise<ResponseObject> {
     try {
-      const business = await this.prisma.businesses.findUnique({ where: { id: businessId } });
+      const business = await this.prisma.businesses.findUnique({
+        where: { id: businessId },
+      });
       const defaultCurrency = business?.default_currency || 'NGN';
       const [allInvoices, allBills, allIncome] = await Promise.all([
-        this.prisma.invoices.findMany({ where: { business_id: businessId }, include: { customers: true } }),
-        this.prisma.bills.findMany({ where: { business_id: businessId }, include: { expense_categories: true } }),
+        this.prisma.invoices.findMany({
+          where: { business_id: businessId },
+          include: { customers: true },
+        }),
+        this.prisma.bills.findMany({
+          where: { business_id: businessId },
+          include: { expense_categories: true },
+        }),
         this.prisma.income.findMany({ where: { business_id: businessId } }),
       ]);
       const effective = currency || defaultCurrency;
       const currencies = Array.from(
-        new Set([defaultCurrency, ...allInvoices.map((i) => i.currency_code).filter((c): c is string => !!c)]),
+        new Set([
+          defaultCurrency,
+          ...allInvoices
+            .map((i) => i.currency_code)
+            .filter((c): c is string => !!c),
+        ]),
       );
       // Invoices carry a currency; income & bills do not — attribute those to the
       // default currency, so they only count in the default-currency view.
-      const invoices = allInvoices.filter((i) => (i.currency_code || defaultCurrency) === effective);
+      const invoices = allInvoices.filter(
+        (i) => (i.currency_code || defaultCurrency) === effective,
+      );
       const bills = effective === defaultCurrency ? allBills : [];
       const income = effective === defaultCurrency ? allIncome : [];
       const now = new Date();
@@ -57,10 +84,15 @@ export class DashboardService {
 
       const byMonth: Record<string, number> = {};
       for (const i of invoices) {
-        if (i.is_paid && i.invoice_date) byMonth[monthKey(new Date(i.invoice_date))] = (byMonth[monthKey(new Date(i.invoice_date))] || 0) + n(i.total_amount);
+        if (i.is_paid && i.invoice_date)
+          byMonth[monthKey(new Date(i.invoice_date))] =
+            (byMonth[monthKey(new Date(i.invoice_date))] || 0) +
+            n(i.total_amount);
       }
       for (const x of income) {
-        if (x.income_date) byMonth[monthKey(new Date(x.income_date))] = (byMonth[monthKey(new Date(x.income_date))] || 0) + n(x.amount);
+        if (x.income_date)
+          byMonth[monthKey(new Date(x.income_date))] =
+            (byMonth[monthKey(new Date(x.income_date))] || 0) + n(x.amount);
       }
       const monthlyRevenue: { month: string; amount: number }[] = [];
       for (let m = 11; m >= 0; m--) {
@@ -74,12 +106,16 @@ export class DashboardService {
         const name = b.expense_categories?.name || 'Uncategorized';
         catMap[name] = (catMap[name] || 0) + n(b.total_amount);
       }
-      const expenseByCategory = Object.entries(catMap).map(([category, amount]) => ({ category, amount }));
+      const expenseByCategory = Object.entries(catMap).map(
+        ([category, amount]) => ({ category, amount }),
+      );
 
       const custMap: Record<string, number> = {};
       for (const i of invoices) {
         const c = i.customers;
-        const name = c ? `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unknown' : 'Unknown';
+        const name = c
+          ? `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unknown'
+          : 'Unknown';
         custMap[name] = (custMap[name] || 0) + n(i.total_amount);
       }
       const topCustomers = Object.entries(custMap)
@@ -103,12 +139,18 @@ export class DashboardService {
       // revenueByMonth: collected (invoice payments) + income = the top-level totalRevenue, over time.
       const revenueByMonth: Record<string, number> = { ...paidByMonth };
       for (const x of income) {
-        if (x.income_date) bump(revenueByMonth, monthKey(new Date(x.income_date)), n(x.amount));
+        if (x.income_date)
+          bump(revenueByMonth, monthKey(new Date(x.income_date)), n(x.amount));
       }
       // outstandingByMonth: unpaid balance created that month, bucketed by invoice_date.
       const outstandingByMonth: Record<string, number> = {};
       for (const i of invoices) {
-        if (!i.is_paid && i.invoice_date) bump(outstandingByMonth, monthKey(new Date(i.invoice_date)), n(i.total_amount) - n(i.amount_paid));
+        if (!i.is_paid && i.invoice_date)
+          bump(
+            outstandingByMonth,
+            monthKey(new Date(i.invoice_date)),
+            n(i.total_amount) - n(i.amount_paid),
+          );
       }
       // clientsByMonth: distinct customers with an invoice that month, bucketed by invoice_date.
       const clientsByMonth: Record<string, Set<string>> = {};
@@ -120,18 +162,36 @@ export class DashboardService {
       }
 
       const months8: string[] = [];
-      for (let m = 7; m >= 0; m--) months8.push(monthKey(new Date(now.getFullYear(), now.getMonth() - m, 1)));
+      for (let m = 7; m >= 0; m--)
+        months8.push(
+          monthKey(new Date(now.getFullYear(), now.getMonth() - m, 1)),
+        );
       const curKey = monthKey(now);
-      const prevKey = monthKey(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+      const prevKey = monthKey(
+        new Date(now.getFullYear(), now.getMonth() - 1, 1),
+      );
 
       const paidThisMonth = paidByMonth[curKey] || 0;
-      const activeClients = new Set(invoices.map((i) => String(i.customer_id))).size;
+      const activeClients = new Set(invoices.map((i) => String(i.customer_id)))
+        .size;
 
       const deltas = {
-        totalRevenue: pctChange(revenueByMonth[curKey] || 0, revenueByMonth[prevKey] || 0),
-        outstanding: pctChange(outstandingByMonth[curKey] || 0, outstandingByMonth[prevKey] || 0),
-        paidThisMonth: pctChange(paidByMonth[curKey] || 0, paidByMonth[prevKey] || 0),
-        activeClients: pctChange(clientsByMonth[curKey]?.size || 0, clientsByMonth[prevKey]?.size || 0),
+        totalRevenue: pctChange(
+          revenueByMonth[curKey] || 0,
+          revenueByMonth[prevKey] || 0,
+        ),
+        outstanding: pctChange(
+          outstandingByMonth[curKey] || 0,
+          outstandingByMonth[prevKey] || 0,
+        ),
+        paidThisMonth: pctChange(
+          paidByMonth[curKey] || 0,
+          paidByMonth[prevKey] || 0,
+        ),
+        activeClients: pctChange(
+          clientsByMonth[curKey]?.size || 0,
+          clientsByMonth[prevKey]?.size || 0,
+        ),
       };
 
       const sparklines = {
@@ -150,7 +210,11 @@ export class DashboardService {
         else if (i.due_date && i.due_date < now) statusOverdue += tot;
         else statusPending += tot;
       }
-      const revenueByStatus = { paid: statusPaid, pending: statusPending, overdue: statusOverdue };
+      const revenueByStatus = {
+        paid: statusPaid,
+        pending: statusPending,
+        overdue: statusOverdue,
+      };
 
       return ok('Dashboard stats fetched successfully', {
         totalInvoiced,
@@ -180,12 +244,18 @@ export class DashboardService {
     }
   }
 
-  async getCashflow(businessId: bigint, range: string, currency?: string): Promise<ResponseObject> {
+  async getCashflow(
+    businessId: bigint,
+    range: string,
+    currency?: string,
+  ): Promise<ResponseObject> {
     try {
       const r = range === '30d' || range === '12m' ? range : '7m';
       const now = new Date();
 
-      const business = await this.prisma.businesses.findUnique({ where: { id: businessId } });
+      const business = await this.prisma.businesses.findUnique({
+        where: { id: businessId },
+      });
       const defaultCurrency = business?.default_currency || 'NGN';
       const effective = currency || defaultCurrency;
       const [allInvoices, allIncome, allBills] = await Promise.all([
@@ -193,7 +263,9 @@ export class DashboardService {
         this.prisma.income.findMany({ where: { business_id: businessId } }),
         this.prisma.bills.findMany({ where: { business_id: businessId } }),
       ]);
-      const invoices = allInvoices.filter((i) => (i.currency_code || defaultCurrency) === effective);
+      const invoices = allInvoices.filter(
+        (i) => (i.currency_code || defaultCurrency) === effective,
+      );
       const income = effective === defaultCurrency ? allIncome : [];
       const bills = effective === defaultCurrency ? allBills : [];
 
@@ -204,27 +276,37 @@ export class DashboardService {
 
       if (daily) {
         for (let i = 29; i >= 0; i--) {
-          const k = dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i));
+          const k = dayKey(
+            new Date(now.getFullYear(), now.getMonth(), now.getDate() - i),
+          );
           idx[k] = series.length;
           series.push({ bucket: k, income: 0, expenses: 0 });
         }
       } else {
         const count = r === '12m' ? 12 : 7;
         for (let m = count - 1; m >= 0; m--) {
-          const k = monthKey(new Date(now.getFullYear(), now.getMonth() - m, 1));
+          const k = monthKey(
+            new Date(now.getFullYear(), now.getMonth() - m, 1),
+          );
           idx[k] = series.length;
           series.push({ bucket: k, income: 0, expenses: 0 });
         }
       }
 
-      const addTo = (field: 'income' | 'expenses', date: Date | null, amt: number) => {
+      const addTo = (
+        field: 'income' | 'expenses',
+        date: Date | null,
+        amt: number,
+      ) => {
         if (!date) return;
         const b = idx[keyOf(new Date(date))];
         if (b !== undefined) series[b][field] += amt;
       };
 
       // income = paid invoices' total_amount (by invoice_date) + income.amount (by income_date)
-      for (const i of invoices) if (i.is_paid && i.invoice_date) addTo('income', i.invoice_date, n(i.total_amount));
+      for (const i of invoices)
+        if (i.is_paid && i.invoice_date)
+          addTo('income', i.invoice_date, n(i.total_amount));
       for (const x of income) addTo('income', x.income_date, n(x.amount));
       // expenses = bills.total_amount (by created_at)
       for (const b of bills) addTo('expenses', b.created_at, n(b.total_amount));
@@ -249,16 +331,51 @@ export class DashboardService {
       for (const i of invoices) {
         const cur = i.currency_code ?? null;
         const name = label(i.invoice_number, i.id);
-        if (i.invoice_date) events.push({ type: 'invoice_created', title: `Invoice ${name} created`, amount: n(i.total_amount), currency: cur, at: new Date(i.invoice_date).toISOString() });
-        if ((i.invoice_status ?? '').toLowerCase() === 'sent' && i.invoice_date) events.push({ type: 'invoice_sent', title: `Invoice ${name} sent`, amount: n(i.total_amount), currency: cur, at: new Date(i.invoice_date).toISOString() });
-        if (i.is_paid && i.paid_date) events.push({ type: 'invoice_paid', title: `Invoice ${name} paid`, amount: n(i.amount_paid), currency: cur, at: new Date(i.paid_date).toISOString() });
+        if (i.invoice_date)
+          events.push({
+            type: 'invoice_created',
+            title: `Invoice ${name} created`,
+            amount: n(i.total_amount),
+            currency: cur,
+            at: new Date(i.invoice_date).toISOString(),
+          });
+        if ((i.invoice_status ?? '').toLowerCase() === 'sent' && i.invoice_date)
+          events.push({
+            type: 'invoice_sent',
+            title: `Invoice ${name} sent`,
+            amount: n(i.total_amount),
+            currency: cur,
+            at: new Date(i.invoice_date).toISOString(),
+          });
+        if (i.is_paid && i.paid_date)
+          events.push({
+            type: 'invoice_paid',
+            title: `Invoice ${name} paid`,
+            amount: n(i.amount_paid),
+            currency: cur,
+            at: new Date(i.paid_date).toISOString(),
+          });
       }
       for (const p of payments) {
         const at = p.paid_at ?? p.created_at;
-        if (at) events.push({ type: 'payment_received', title: 'Payment received', amount: n(p.amount), currency: p.currency ?? null, at: new Date(at).toISOString() });
+        if (at)
+          events.push({
+            type: 'payment_received',
+            title: 'Payment received',
+            amount: n(p.amount),
+            currency: p.currency ?? null,
+            at: new Date(at).toISOString(),
+          });
       }
       for (const b of bills) {
-        if (b.created_at) events.push({ type: 'bill_added', title: `Bill ${label(b.bill_number, b.id)} added`, amount: n(b.total_amount), currency: null, at: new Date(b.created_at).toISOString() });
+        if (b.created_at)
+          events.push({
+            type: 'bill_added',
+            title: `Bill ${label(b.bill_number, b.id)} added`,
+            amount: n(b.total_amount),
+            currency: null,
+            at: new Date(b.created_at).toISOString(),
+          });
       }
 
       events.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));

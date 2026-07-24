@@ -1,6 +1,9 @@
 import { Body, Controller, Get, Put } from '@nestjs/common';
 import { NotificationService } from './notification.service';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 import { NotificationPreferencesDto } from './dto/notification-preferences.dto';
 
 /** NotificationPreferencesController — `/api/notification-preferences`. */
@@ -14,7 +17,10 @@ export class NotificationController {
   }
 
   @Put()
-  update(@Body() dto: NotificationPreferencesDto, @CurrentUser() user: AuthUser) {
+  update(
+    @Body() dto: NotificationPreferencesDto,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.service.update(user.id, dto);
   }
 }

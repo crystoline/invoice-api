@@ -29,7 +29,8 @@ export class GoogleAuthService {
   ) {}
 
   private redirectUri(): string {
-    const base = this.config.get<string>('APP_BASE_URL') ?? 'http://localhost:8080';
+    const base =
+      this.config.get<string>('APP_BASE_URL') ?? 'http://localhost:8080';
     return `${base}/api/oauth2/login/oauth2/code/google`;
   }
 
@@ -44,7 +45,9 @@ export class GoogleAuthService {
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
   }
 
-  async handleCallback(code: string): Promise<{ token: string; userId: bigint } | null> {
+  async handleCallback(
+    code: string,
+  ): Promise<{ token: string; userId: bigint } | null> {
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
     const clientSecret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
     if (!clientId || !clientSecret || !code) return null;
@@ -68,9 +71,13 @@ export class GoogleAuthService {
       ) as { email?: string; given_name?: string; family_name?: string };
       if (!claims.email) return null;
 
-      let user = await this.prisma.users.findFirst({ where: { email: claims.email } });
+      let user = await this.prisma.users.findFirst({
+        where: { email: claims.email },
+      });
       if (!user) {
-        const role = await this.prisma.roles.findFirst({ where: { name: roles_name.ROLE_USER } });
+        const role = await this.prisma.roles.findFirst({
+          where: { name: roles_name.ROLE_USER },
+        });
         user = await this.prisma.users.create({
           data: {
             username: claims.email,
@@ -81,14 +88,24 @@ export class GoogleAuthService {
             status: true,
             verified: false,
             date_added: formatDateAdded(),
-            ...(role ? { user_role: { create: [{ roles: { connect: { id: role.id } } }] } } : {}),
+            ...(role
+              ? {
+                  user_role: {
+                    create: [{ roles: { connect: { id: role.id } } }],
+                  },
+                }
+              : {}),
           },
         });
-        const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+        const frontendUrl =
+          this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
         const vToken = generateVerificationToken();
         await this.prisma.users.update({
           where: { id: user.id },
-          data: { verification_token: vToken, token_expiry_time: new Date(Date.now() + 3600_000) },
+          data: {
+            verification_token: vToken,
+            token_expiry_time: new Date(Date.now() + 3600_000),
+          },
         });
         await this.email.sendVerificationEmail(
           claims.email,
@@ -96,10 +113,15 @@ export class GoogleAuthService {
           `${frontendUrl}/user/verify?token=${vToken}`,
         );
       }
-      await this.prisma.users.update({ where: { id: user.id }, data: { last_login: new Date() } });
+      await this.prisma.users.update({
+        where: { id: user.id },
+        data: { last_login: new Date() },
+      });
       return { token: this.auth.signToken(claims.email), userId: user.id };
     } catch (e) {
-      this.logger.error(`Google OAuth callback failed: ${(e as Error).message}`);
+      this.logger.error(
+        `Google OAuth callback failed: ${(e as Error).message}`,
+      );
       return null;
     }
   }

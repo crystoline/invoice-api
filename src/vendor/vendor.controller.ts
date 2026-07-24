@@ -1,4 +1,12 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { VendorService } from './vendor.service';
 import { VendorRequestDto, VendorProductRequestDto } from './dto/vendor.dto';
 
@@ -32,12 +40,18 @@ export class VendorController {
   }
 
   @Post(':vendorId/vendor-product')
-  addProduct(@Param('vendorId') vendorId: string, @Body() dto: VendorProductRequestDto) {
+  addProduct(
+    @Param('vendorId') vendorId: string,
+    @Body() dto: VendorProductRequestDto,
+  ) {
     return this.vendors.addVendorProduct(BigInt(vendorId), dto);
   }
 
   @Put('vendor-product/:vendorId')
-  updateProduct(@Param('vendorId') vendorProductId: string, @Body() dto: VendorProductRequestDto) {
+  updateProduct(
+    @Param('vendorId') vendorProductId: string,
+    @Body() dto: VendorProductRequestDto,
+  ) {
     return this.vendors.updateVendorProduct(BigInt(vendorProductId), dto);
   }
 

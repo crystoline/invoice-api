@@ -20,7 +20,9 @@ export class NotificationService {
   /** GET — current user's prefs; create all-true defaults on first access. */
   async getForUser(userId: bigint): Promise<ResponseObject> {
     try {
-      let prefs = await this.prisma.notification_preferences.findUnique({ where: { user_id: userId } });
+      let prefs = await this.prisma.notification_preferences.findUnique({
+        where: { user_id: userId },
+      });
       if (!prefs) {
         prefs = await this.prisma.notification_preferences.create({
           data: {
@@ -32,14 +34,22 @@ export class NotificationService {
           },
         });
       }
-      return ok('Notification preferences fetched successfully', this.mapDTO(prefs));
+      return ok(
+        'Notification preferences fetched successfully',
+        this.mapDTO(prefs),
+      );
     } catch (e) {
-      return fail(`Failed to fetch notification preferences: ${(e as Error).message}`);
+      return fail(
+        `Failed to fetch notification preferences: ${(e as Error).message}`,
+      );
     }
   }
 
   /** PUT — upsert by user_id. */
-  async update(userId: bigint, dto: NotificationPreferencesDto): Promise<ResponseObject> {
+  async update(
+    userId: bigint,
+    dto: NotificationPreferencesDto,
+  ): Promise<ResponseObject> {
     try {
       const prefs = await this.prisma.notification_preferences.upsert({
         where: { user_id: userId },
@@ -57,9 +67,14 @@ export class NotificationService {
           bill_reminder: dto.billReminder ?? true,
         },
       });
-      return ok('Notification preferences updated successfully', this.mapDTO(prefs));
+      return ok(
+        'Notification preferences updated successfully',
+        this.mapDTO(prefs),
+      );
     } catch (e) {
-      return fail(`Failed to update notification preferences: ${(e as Error).message}`);
+      return fail(
+        `Failed to update notification preferences: ${(e as Error).message}`,
+      );
     }
   }
 }

@@ -1,8 +1,21 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UploadedFile, UseInterceptors } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { BillsService } from './bills.service';
 import { BillRequestDto } from './dto/bills.dto';
-import { CurrentUser, type AuthUser } from '../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 
 /** BillsController — `/api/bills`. Literal routes before `bill/:billId`. */
 @Controller('bills')
@@ -20,8 +33,13 @@ export class BillsController {
   }
 
   @Post('bill/:billId/receipt')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
-  uploadReceipt(@Param('billId') billId: string, @UploadedFile() file: Express.Multer.File) {
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
+  uploadReceipt(
+    @Param('billId') billId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
     return this.bills.uploadReceipt(BigInt(billId), file);
   }
 

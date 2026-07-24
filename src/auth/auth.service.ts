@@ -41,7 +41,10 @@ export class AuthService {
       firstName: user.first_name,
       lastName: user.last_name,
       email: user.email,
-      userType: user.user_role.map((ur) => ({ id: ur.roles?.id, name: ur.roles?.name })),
+      userType: user.user_role.map((ur) => ({
+        id: ur.roles?.id,
+        name: ur.roles?.name,
+      })),
       status: user.status,
       verified: user.verified,
       dateAdded: user.date_added,
@@ -50,15 +53,24 @@ export class AuthService {
   }
 
   /** Persist token + 1h expiry and email the verification/reset link. */
-  private async sendVerificationEmailToUser(userId: bigint, email: string, firstName: string): Promise<string> {
+  private async sendVerificationEmailToUser(
+    userId: bigint,
+    email: string,
+    firstName: string,
+  ): Promise<string> {
     const token = generateVerificationToken();
     const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
     await this.prisma.users.update({
       where: { id: userId },
       data: { verification_token: token, token_expiry_time: expiry },
     });
-    const frontendUrl = this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
-    await this.email.sendVerificationEmail(email, firstName, `${frontendUrl}/user/verify?token=${token}`);
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+    await this.email.sendVerificationEmail(
+      email,
+      firstName,
+      `${frontendUrl}/user/verify?token=${token}`,
+    );
     return token;
   }
 
@@ -67,15 +79,22 @@ export class AuthService {
    * legacy: anonymous → ROLE_USER; a super-admin caller → ROLE_ADMIN; an
    * authenticated non-super-admin caller → no role (legacy edge case).
    */
-  async createUser(dto: SignupDto, currentUser: AuthUser | null): Promise<ResponseObject> {
+  async createUser(
+    dto: SignupDto,
+    currentUser: AuthUser | null,
+  ): Promise<ResponseObject> {
     if (dto.email) {
-      const existing = await this.prisma.users.findFirst({ where: { email: dto.email } });
+      const existing = await this.prisma.users.findFirst({
+        where: { email: dto.email },
+      });
       if (existing) return fail('Email already exists.');
     }
 
     let roleName: roles_name | null;
     if (currentUser) {
-      roleName = currentUser.roles.includes(roles_name.ROLE_SUPER_ADMIN) ? roles_name.ROLE_ADMIN : null;
+      roleName = currentUser.roles.includes(roles_name.ROLE_SUPER_ADMIN)
+        ? roles_name.ROLE_ADMIN
+        : null;
     } else {
       roleName = roles_name.ROLE_USER;
     }
@@ -92,15 +111,31 @@ export class AuthService {
         verified: false,
         date_added: formatDateAdded(),
         ...(roleName
-          ? { user_role: { create: [{ roles: { connect: { id: await this.roleIdByName(roleName) } } }] } }
+          ? {
+              user_role: {
+                create: [
+                  {
+                    roles: {
+                      connect: { id: await this.roleIdByName(roleName) },
+                    },
+                  },
+                ],
+              },
+            }
           : {}),
       },
       include: { user_role: { include: { roles: true } } },
     });
 
-    await this.sendVerificationEmailToUser(created.id, dto.email ?? '', dto.firstName ?? '');
+    await this.sendVerificationEmailToUser(
+      created.id,
+      dto.email ?? '',
+      dto.firstName ?? '',
+    );
 
-    const message = currentUser ? 'Admin User created successfully.' : 'User sign up, successful.';
+    const message = currentUser
+      ? 'Admin User created successfully.'
+      : 'User sign up, successful.';
     return ok(message, this.mapToUserDTO(created));
   }
 
@@ -114,8 +149,12 @@ export class AuthService {
       where: { username: dto.username },
       include: { user_role: { include: { roles: true } } },
     });
-    if (!user || !user.password) throw new UnauthorizedException('Bad credentials');
-    if (!user.status) throw new UnauthorizedException('User is deactivated. Please contact the administrator.');
+    if (!user || !user.password)
+      throw new UnauthorizedException('Bad credentials');
+    if (!user.status)
+      throw new UnauthorizedException(
+        'User is deactivated. Please contact the administrator.',
+      );
     const matches = await bcrypt.compare(dto.password ?? '', user.password);
     if (!matches) throw new UnauthorizedException('Bad credentials');
 
@@ -128,7 +167,8 @@ export class AuthService {
         body: {
           responseCode: '00',
           success: true,
-          message: 'Enter your two-factor authentication code to finish signing in.',
+          message:
+            'Enter your two-factor authentication code to finish signing in.',
           data: {
             twoFactorRequired: true,
             challengeToken: this.signTwoFactorChallenge(user.id),
@@ -144,14 +184,21 @@ export class AuthService {
   }
 
   /** Second leg of a 2FA login: challenge token + code → a real session. */
-  async completeTwoFactorLogin(dto: TwoFactorLoginDto): Promise<Record<string, unknown>> {
+  async completeTwoFactorLogin(
+    dto: TwoFactorLoginDto,
+  ): Promise<Record<string, unknown>> {
     let userId: bigint;
     try {
-      const payload = this.jwt.verify<{ sub?: string; purpose?: string }>(dto.challengeToken);
-      if (payload?.purpose !== '2fa' || !payload.sub) throw new Error('not a 2fa challenge');
+      const payload = this.jwt.verify<{ sub?: string; purpose?: string }>(
+        dto.challengeToken,
+      );
+      if (payload?.purpose !== '2fa' || !payload.sub)
+        throw new Error('not a 2fa challenge');
       userId = BigInt(payload.sub);
     } catch {
-      throw new UnauthorizedException('Your sign-in session expired. Please sign in again.');
+      throw new UnauthorizedException(
+        'Your sign-in session expired. Please sign in again.',
+      );
     }
 
     const user = await this.prisma.users.findUnique({
@@ -160,9 +207,15 @@ export class AuthService {
     });
     if (!user) throw new UnauthorizedException('Bad credentials');
     if (!user.status) {
-      throw new UnauthorizedException('User is deactivated. Please contact the administrator.');
+      throw new UnauthorizedException(
+        'User is deactivated. Please contact the administrator.',
+      );
     }
-    const valid = await this.twoFactor.verifyForLogin(user.id, user.totp_secret, dto.code);
+    const valid = await this.twoFactor.verifyForLogin(
+      user.id,
+      user.totp_secret,
+      dto.code,
+    );
     if (!valid) throw new UnauthorizedException('That code is not valid.');
 
     return this.buildLoginSuccess(user);
@@ -170,23 +223,38 @@ export class AuthService {
 
   /** 5-minute, single-purpose token that only completeTwoFactorLogin accepts. */
   private signTwoFactorChallenge(userId: bigint): string {
-    return this.jwt.sign({ sub: String(userId), purpose: '2fa' }, { expiresIn: '5m' });
+    return this.jwt.sign(
+      { sub: String(userId), purpose: '2fa' },
+      { expiresIn: '5m' },
+    );
   }
 
   /** The legacy double-wrapped success envelope, shared by both login paths. */
-  private async buildLoginSuccess(user: UserWithRoles): Promise<Record<string, unknown>> {
+  private async buildLoginSuccess(
+    user: UserWithRoles,
+  ): Promise<Record<string, unknown>> {
     const token = this.signToken(user.username ?? user.email ?? '');
-    await this.prisma.users.update({ where: { id: user.id }, data: { last_login: new Date() } });
+    await this.prisma.users.update({
+      where: { id: user.id },
+      data: { last_login: new Date() },
+    });
 
     // The frontend routes off businessesOwned at login (single business → its
     // dashboard; none → choose/create). Must return the user's real businesses.
-    const owned = await this.prisma.businesses.findMany({ where: { owner_id: user.id } });
+    const owned = await this.prisma.businesses.findMany({
+      where: { owner_id: user.id },
+    });
 
     const roles = user.user_role.map((ur) => ur.roles?.name).filter(Boolean);
     let accountVerificationMessage = 'Verified Account';
     if (!user.verified) {
-      accountVerificationMessage = 'Account not verified, click  the link sent to your email to verify';
-      await this.sendVerificationEmailToUser(user.id, user.email ?? '', user.first_name ?? '');
+      accountVerificationMessage =
+        'Account not verified, click  the link sent to your email to verify';
+      await this.sendVerificationEmailToUser(
+        user.id,
+        user.email ?? '',
+        user.first_name ?? '',
+      );
     }
 
     const body = {
@@ -214,7 +282,12 @@ export class AuthService {
         })),
       },
     };
-    return { headers: { Authorization: [`Bearer ${token}`] }, body, statusCode: 'OK', statusCodeValue: 200 };
+    return {
+      headers: { Authorization: [`Bearer ${token}`] },
+      body,
+      statusCode: 'OK',
+      statusCodeValue: 200,
+    };
   }
 
   /** Sign a JWT with the exact legacy claim set (2h exp via JwtModule config). */
@@ -228,24 +301,40 @@ export class AuthService {
   }
 
   /** Resend verification email (#5). Unknown email → 200 fail (legacy 500 hardened). */
-  async sendUserVerificationEmail(dto: ChangePasswordEmailDto): Promise<ResponseObject> {
-    const user = await this.prisma.users.findFirst({ where: { email: dto.email } });
+  async sendUserVerificationEmail(
+    dto: ChangePasswordEmailDto,
+  ): Promise<ResponseObject> {
+    const user = await this.prisma.users.findFirst({
+      where: { email: dto.email },
+    });
     if (!user) return fail('User with email not found.');
     if (user.verified) return fail('User account is already verified ');
     try {
-      await this.sendVerificationEmailToUser(user.id, user.email ?? '', user.first_name ?? '');
+      await this.sendVerificationEmailToUser(
+        user.id,
+        user.email ?? '',
+        user.first_name ?? '',
+      );
       return ok('Verification email sent successfully.');
     } catch (e) {
-      return fail(`Error trying to send verification email ${(e as Error).message}`);
+      return fail(
+        `Error trying to send verification email ${(e as Error).message}`,
+      );
     }
   }
 
   /** Verify account (#4). */
   async verifyUser(token: string, email: string): Promise<ResponseObject> {
-    const user = await this.prisma.users.findFirst({ where: { verification_token: token } });
-    if (!user || user.email !== email) return fail('User verification failed, contact support center');
-    if (user.verified) return ok('Account is already verified. Login to proceed');
-    const valid = user.token_expiry_time ? new Date() < user.token_expiry_time : false;
+    const user = await this.prisma.users.findFirst({
+      where: { verification_token: token },
+    });
+    if (!user || user.email !== email)
+      return fail('User verification failed, contact support center');
+    if (user.verified)
+      return ok('Account is already verified. Login to proceed');
+    const valid = user.token_expiry_time
+      ? new Date() < user.token_expiry_time
+      : false;
     if (!valid) return fail('User verification failed, contact support center');
     await this.prisma.users.update({
       where: { id: user.id },

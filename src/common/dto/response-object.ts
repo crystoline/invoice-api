@@ -12,10 +12,16 @@ export interface ResponseObject<T = unknown> {
   data: T | null;
 }
 
-export function ok<T>(message: string, data: T | null = null): ResponseObject<T> {
+export function ok<T>(
+  message: string,
+  data: T | null = null,
+): ResponseObject<T> {
   return { responseCode: '00', message, data };
 }
 
-export function fail<T = null>(message: string, data: T | null = null): ResponseObject<T> {
+export function fail<T = null>(
+  message: string,
+  data: T | null = null,
+): ResponseObject<T> {
   return { responseCode: '01', message, data };
 }

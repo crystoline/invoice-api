@@ -1,4 +1,11 @@
-import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 /**
  * Request DTOs for the platform AdminModule. Style mirrors the existing
@@ -6,7 +13,12 @@ import { IsBoolean, IsEmail, IsIn, IsNumber, IsOptional, IsString } from 'class-
  * camelCase in / snake_case mapped in the service.
  */
 
-const ROLE_NAMES = ['ROLE_ADMIN', 'ROLE_USER', 'ROLE_SUPER_ADMIN', 'BUSINESS_USER'];
+const ROLE_NAMES = [
+  'ROLE_ADMIN',
+  'ROLE_USER',
+  'ROLE_SUPER_ADMIN',
+  'BUSINESS_USER',
+];
 
 export class AdminCreateUserDto {
   @IsOptional() @IsString() firstName?: string;
