@@ -45,7 +45,9 @@ export class IncomeService {
         const c = await this.prisma.customers.findUnique({
           where: { id: BigInt(dto.customerId) },
         });
-        if (!c) throw new Error('Customer not found');
+        // Another business's customer is "not found" from here.
+        if (!c || c.business_id !== business.id)
+          throw new Error('Customer not found');
         customerId = c.id;
       }
       const created = await this.prisma.income.create({
@@ -91,7 +93,8 @@ export class IncomeService {
         const c = await this.prisma.customers.findUnique({
           where: { id: BigInt(dto.customerId) },
         });
-        if (!c) throw new Error('Customer not found');
+        if (!c || c.business_id !== existing.business_id)
+          throw new Error('Customer not found');
         customerId = c.id;
       }
       const updated = await this.prisma.income.update({

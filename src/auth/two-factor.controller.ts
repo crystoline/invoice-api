@@ -7,6 +7,7 @@ import {
   type AuthUser,
 } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
+import { Authenticated } from '../common/authz/authz.decorators';
 import { TwoFactorCodeDto, TwoFactorLoginDto } from './dto/two-factor.dto';
 
 /**
@@ -15,6 +16,7 @@ import { TwoFactorCodeDto, TwoFactorLoginDto } from './dto/two-factor.dto';
  * Everything except `login` requires an existing session: you enrol from inside
  * settings. `login` is public because it is the second leg of signing in.
  */
+@Authenticated() // every route acts on the caller's own account
 @Controller('auth/2fa')
 export class TwoFactorController {
   constructor(

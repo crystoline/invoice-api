@@ -1,6 +1,8 @@
 import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class VendorRequestDto {
+  /** Required on create — vendors belong to a business. */
+  @IsOptional() @IsNumber() businessId?: number;
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() email?: string;
   @IsOptional() @IsBoolean() status?: boolean;

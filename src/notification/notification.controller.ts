@@ -4,9 +4,11 @@ import {
   CurrentUser,
   type AuthUser,
 } from '../common/decorators/current-user.decorator';
+import { Authenticated } from '../common/authz/authz.decorators';
 import { NotificationPreferencesDto } from './dto/notification-preferences.dto';
 
 /** NotificationPreferencesController — `/api/notification-preferences`. */
+@Authenticated() // every route is scoped to the caller's own data
 @Controller('notification-preferences')
 export class NotificationController {
   constructor(private readonly service: NotificationService) {}

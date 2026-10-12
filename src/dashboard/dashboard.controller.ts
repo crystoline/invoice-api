@@ -1,7 +1,10 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
+import { BusinessPermission } from '../common/authz/authz.decorators';
+import { Permission } from '../common/authz/permissions';
 
 /** DashboardController — `/api/dashboard`. */
+@BusinessPermission(Permission.VIEW, { param: 'businessId' })
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}

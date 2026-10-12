@@ -12,8 +12,19 @@ import { InvitationService } from './invitation.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { toSpringPage } from '../common/dto/page';
 import { AuthUser } from '../common/decorators/current-user.decorator';
-import { Role } from '../common/enums/role.enum';
+import {
+  ASSIGNABLE_ROLES,
+  BusinessRole,
+  Permission,
+  ROLE_PERMISSIONS,
+  isPlatformAdmin,
+  toBusinessRole,
+} from '../common/authz/permissions';
 import { BusinessRequestDto, BusinessSettingsDto } from './dto/business.dto';
+
+// Access to every method here is decided by AuthorizationGuard from the route's
+// @BusinessPermission / @Roles / @Authenticated declaration — the service only
+// enforces rules that depend on the data itself (e.g. the owner can't be demoted).
 
 const businessFull = {
   users_businesses_owner_idTousers: true,
@@ -47,11 +58,20 @@ export class BusinessService {
     };
   }
 
+  /** The viewer's role in `biz` (null for non-members, e.g. platform admins). */
+  private roleIn(biz: BusinessFull, viewer: AuthUser): BusinessRole | null {
+    if (biz.owner_id === viewer.id) return BusinessRole.OWNER;
+    const m = biz.business_members.find((bm) => bm.user_id === viewer.id);
+    return m ? toBusinessRole(m.role) : null;
+  }
+
   private mapBusinessDTO(
     biz: BusinessFull,
     businessesOwned: (string | null)[] | null = null,
+    viewer: AuthUser | null = null,
   ) {
     const owner = biz.users_businesses_owner_idTousers;
+    const myRole = viewer ? this.roleIn(biz, viewer) : null;
     return {
       businessId: biz.id,
       userId: biz.owner_id,
@@ -75,14 +95,24 @@ export class BusinessService {
       paystackConnected: !!biz.paystack_secret_key, // never expose secret keys
       stripeConnected: !!biz.stripe_secret_key,
       businessesOwned,
-      businessMembers: (biz.business_members ?? []).map((m) =>
-        this.mapUserEntity(m.users),
-      ),
+      businessMembers: (biz.business_members ?? []).map((m) => ({
+        ...this.mapUserEntity(m.users),
+        role: toBusinessRole(m.role),
+      })),
+      // What the requesting user may do here — lets the UI hide what they can't.
+      ...(viewer && {
+        myRole,
+        permissions: myRole
+          ? ROLE_PERMISSIONS[myRole]
+          : isPlatformAdmin(viewer)
+            ? Object.values(Permission)
+            : [],
+      }),
     };
   }
 
   private isAdmin(user: AuthUser | null): boolean {
-    return !!user?.roles.includes(Role.ADMIN);
+    return isPlatformAdmin(user);
   }
 
   private isOwnerOrMember(biz: BusinessFull, userId: bigint): boolean {
@@ -139,6 +169,7 @@ export class BusinessService {
         this.mapBusinessDTO(
           created,
           owned.map((b) => b.business_name),
+          user,
         ),
       );
     } catch (e) {
@@ -196,7 +227,7 @@ export class BusinessService {
       });
       return ok(
         'Businesses fetched successfully for owner',
-        all.map((b) => this.mapBusinessDTO(b)),
+        all.map((b) => this.mapBusinessDTO(b, null, user)),
       );
     } catch (e) {
       return fail(
@@ -205,10 +236,32 @@ export class BusinessService {
     }
   }
 
-  // 4.5 — owner or member
+  /** Businesses the user owns or has joined, each carrying their role. */
+  async getMyBusinesses(user: AuthUser): Promise<ResponseObject> {
+    try {
+      const all = await this.prisma.businesses.findMany({
+        where: {
+          OR: [
+            { owner_id: user.id },
+            { business_members: { some: { user_id: user.id } } },
+          ],
+        },
+        include: businessFull,
+        orderBy: { id: 'asc' },
+      });
+      return ok(
+        'Businesses fetched successfully',
+        all.map((b) => this.mapBusinessDTO(b, null, user)),
+      );
+    } catch (e) {
+      return fail(`Failed to fetch businesses: ${(e as Error).message}`);
+    }
+  }
+
+  // 4.5 — access checked by the guard (VIEW)
   async getBusiness(
     businessId: bigint,
-    user: AuthUser | null,
+    user: AuthUser,
   ): Promise<ResponseObject> {
     try {
       const biz = await this.prisma.businesses.findUnique({
@@ -216,10 +269,10 @@ export class BusinessService {
         include: businessFull,
       });
       if (!biz) return fail('Business not found');
-      if (!user || !this.isOwnerOrMember(biz, user.id)) {
-        return fail('Only Owner  or Member is allowed to fetch business');
-      }
-      return ok('Business fetched successfully', this.mapBusinessDTO(biz));
+      return ok(
+        'Business fetched successfully',
+        this.mapBusinessDTO(biz, null, user),
+      );
     } catch (e) {
       return fail(`Failed  to fetch business: ${(e as Error).message}`);
     }
@@ -253,24 +306,18 @@ export class BusinessService {
     return ok('Businesses switched successfully', this.mapBusinessDTO(biz));
   }
 
-  // 4.7 — owner only (404/403 for not-found/not-authorized)
+  // 4.7 — MANAGE_SETTINGS (guard)
   async updateBusiness(
     businessId: bigint,
     dto: BusinessRequestDto,
-    user: AuthUser | null,
+    user: AuthUser,
   ): Promise<ResponseObject> {
     const biz = await this.prisma.businesses.findUnique({
       where: { id: businessId },
-      include: businessFull,
     });
     if (!biz)
       throw new NotFoundException(`Business not found with id: ${businessId}`);
-    const isOwner = biz.owner_id === user?.id;
-    if (!isOwner && !this.isAdmin(user))
-      throw new ForbiddenException('Access denied');
     try {
-      if (!isOwner)
-        return fail('Only Business owner is allowed to update this business');
       const updated = await this.prisma.businesses.update({
         where: { id: businessId },
         data: {
@@ -281,14 +328,14 @@ export class BusinessService {
       });
       return ok(
         'Businesses updated successfully',
-        this.mapBusinessDTO(updated),
+        this.mapBusinessDTO(updated, null, user),
       );
     } catch (e) {
       return fail(`Failed  to update business: ${(e as Error).message}`);
     }
   }
 
-  // 4.8 — owner only
+  // 4.8 — MANAGE_MEMBERS (guard). Invitees join as MEMBER.
   async sendInvitation(
     businessId: bigint,
     email: string,
@@ -299,8 +346,6 @@ export class BusinessService {
         where: { id: businessId },
       });
       if (!biz) return fail('Business not found.');
-      if (biz.owner_id !== user?.id)
-        return fail("You don't have privilege to invite users.");
       const code = this.invitations.generateAndStore(businessId);
       const base =
         this.config.get<string>('APP_BASE_URL') ?? 'http://localhost:8080';
@@ -381,19 +426,14 @@ export class BusinessService {
     }
   }
 
-  // 4.12 — admin only (500 if id missing, per legacy)
-  async deleteBusiness(
-    businessId: bigint,
-    user: AuthUser | null,
-  ): Promise<ResponseObject> {
+  // 4.12 — DELETE_BUSINESS (owner or platform admin; guard). 500 if id missing, per legacy.
+  async deleteBusiness(businessId: bigint): Promise<ResponseObject> {
     const exists = await this.prisma.businesses.findUnique({
       where: { id: businessId },
     });
     if (!exists)
       throw new Error(`Business with id ${businessId} does not exist`);
     try {
-      if (!this.isAdmin(user))
-        return fail('you need admin privilege to delete business ');
       await this.prisma.businesses.delete({ where: { id: businessId } });
       return ok('Business deleted successfully.');
     } catch (e) {
@@ -401,30 +441,26 @@ export class BusinessService {
     }
   }
 
-  // 4.13 — owner or admin; businessId is a query param
+  // 4.13 — VIEW (guard); businessId is a query param
   async getAllBusinessUsers(
-    businessId: bigint | undefined,
-    user: AuthUser | null,
+    businessId: bigint,
+    user: AuthUser,
   ): Promise<ResponseObject> {
     try {
-      if (businessId === undefined)
-        return fail('Failed to fetch Business users: businessId is required');
       const biz = await this.prisma.businesses.findUnique({
         where: { id: businessId },
         include: businessFull,
       });
       if (!biz)
         return fail('Failed to fetch Business users: Business not found');
-      const isOwner = biz.owner_id === user?.id;
-      if (!isOwner && !this.isAdmin(user))
-        return fail('Failed to fetch Business users: Access denied');
       const members = (biz.business_members ?? []).map((m) => {
         const u = m.users;
         return {
-          id: null,
+          id: u?.id ?? null,
           firstName: u?.first_name,
           lastName: u?.last_name,
           email: u?.email,
+          role: toBusinessRole(m.role),
           userType: [] as unknown[],
           status: u?.status,
           verified: u?.verified,
@@ -432,24 +468,85 @@ export class BusinessService {
           lastLogin: u?.last_login,
         };
       });
-      return ok('Business Users fetched Successfully', members);
+      // Mark the caller's own row so clients can tell "you" apart.
+      return ok(
+        'Business Users fetched Successfully',
+        members.map((m) => ({ ...m, isYou: m.id === user.id })),
+      );
     } catch (e) {
       return fail(`Failed to fetch Business users: ${(e as Error).message}`);
     }
   }
 
-  // 4.14 — owner only (404/403)
-  async getAllBusinessCustomers(
+  /**
+   * Change a member's role — MANAGE_MEMBERS (guard). The owner isn't a member
+   * row and can't be changed; nobody can change their own role (no self-promotion).
+   */
+  async setMemberRole(
     businessId: bigint,
-    user: AuthUser | null,
+    memberId: bigint,
+    role: string,
+    actor: AuthUser,
   ): Promise<ResponseObject> {
+    const next = String(role ?? '').toUpperCase() as BusinessRole;
+    if (!ASSIGNABLE_ROLES.includes(next)) {
+      return fail(
+        `Role must be one of: ${ASSIGNABLE_ROLES.map((r) => r.toLowerCase()).join(', ')}`,
+      );
+    }
+    if (memberId === actor.id) return fail("You can't change your own role");
+    const biz = await this.prisma.businesses.findUnique({
+      where: { id: businessId },
+      select: { owner_id: true },
+    });
+    if (!biz) return fail('Business not found');
+    if (biz.owner_id === memberId)
+      return fail("The business owner's role can't be changed");
+    const key = {
+      business_id_user_id: { business_id: businessId, user_id: memberId },
+    };
+    if (!(await this.prisma.business_members.findUnique({ where: key }))) {
+      return fail('This user is not a member of the business');
+    }
+    await this.prisma.business_members.update({
+      where: key,
+      data: { role: next },
+    });
+    return ok('Member role updated', { userId: memberId, role: next });
+  }
+
+  /** Remove a member — MANAGE_MEMBERS (guard). The owner can't be removed. */
+  async removeMember(
+    businessId: bigint,
+    memberId: bigint,
+  ): Promise<ResponseObject> {
+    const biz = await this.prisma.businesses.findUnique({
+      where: { id: businessId },
+      select: { owner_id: true },
+    });
+    if (!biz) return fail('Business not found');
+    if (biz.owner_id === memberId)
+      return fail("The business owner can't be removed");
+    const removed = await this.prisma.business_members.deleteMany({
+      where: { business_id: businessId, user_id: memberId },
+    });
+    if (!removed.count)
+      return fail('This user is not a member of the business');
+    // Don't leave them "inside" a business they no longer belong to.
+    await this.prisma.users.updateMany({
+      where: { id: memberId, selected_business_id: businessId },
+      data: { selected_business_id: null },
+    });
+    return ok('Member removed from the business');
+  }
+
+  // 4.14 — VIEW (guard)
+  async getAllBusinessCustomers(businessId: bigint): Promise<ResponseObject> {
     const biz = await this.prisma.businesses.findUnique({
       where: { id: businessId },
       include: { customers: true },
     });
     if (!biz) throw new NotFoundException('Business not found');
-    if (biz.owner_id !== user?.id)
-      throw new ForbiddenException('Access denied');
     try {
       const customers = biz.customers.map((c) => ({
         id: c.id,
@@ -467,18 +564,16 @@ export class BusinessService {
     }
   }
 
-  // PUT /api/businesses/business/:businessId/settings
+  // PUT /api/businesses/business/:businessId/settings — MANAGE_SETTINGS (guard)
   async updateSettings(
     businessId: bigint,
     dto: BusinessSettingsDto,
-    user: AuthUser | null,
+    user: AuthUser,
   ): Promise<ResponseObject> {
     const biz = await this.prisma.businesses.findUnique({
       where: { id: businessId },
     });
     if (!biz) return fail('Business not found');
-    if (biz.owner_id !== user?.id && !this.isAdmin(user))
-      return fail('Access denied');
     try {
       const updated = await this.prisma.businesses.update({
         where: { id: businessId },
@@ -501,24 +596,24 @@ export class BusinessService {
         },
         include: businessFull,
       });
-      return ok('Settings updated successfully', this.mapBusinessDTO(updated));
+      return ok(
+        'Settings updated successfully',
+        this.mapBusinessDTO(updated, null, user),
+      );
     } catch (e) {
       return fail(`Failed to update settings: ${(e as Error).message}`);
     }
   }
 
-  // POST /api/businesses/business/:businessId/logo
+  // POST /api/businesses/business/:businessId/logo — MANAGE_SETTINGS (guard)
   async uploadLogo(
     businessId: bigint,
     file: Express.Multer.File,
-    user: AuthUser | null,
   ): Promise<ResponseObject> {
     const biz = await this.prisma.businesses.findUnique({
       where: { id: businessId },
     });
     if (!biz) return fail('Business not found');
-    if (biz.owner_id !== user?.id && !this.isAdmin(user))
-      return fail('Access denied');
     try {
       const rel = await this.storage.storeFile(file, 'logos');
       const base =

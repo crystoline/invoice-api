@@ -16,6 +16,7 @@ import {
   type AuthUser,
 } from '../common/decorators/current-user.decorator';
 import { Role } from '../common/enums/role.enum';
+import { Authenticated } from '../common/authz/authz.decorators';
 import {
   UpdateUserDto,
   ChangePasswordEmailDto,
@@ -31,18 +32,23 @@ import {
  * NOTE: the three destructive endpoints (delete/users, seed/db, clear-db/all)
  * are open to any authenticated user in the legacy app. They are NOT part of
  * the frontend contract, so the port hardens them to ROLE_SUPER_ADMIN.
+ *
+ * Managing other users (list/read/update/toggle/delete) is platform-admin
+ * only; everything else acts on the caller's own account.
  */
 @Controller('auth')
 export class UserController {
   constructor(private readonly users: UserService) {}
 
   // #6
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Get('users')
   getUsers() {
     return this.users.getAllUsers();
   }
 
   // #7
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Get('paginated-users')
   paginated(@Query('page') page = '0', @Query('size') size = '10') {
     return this.users.getAllUsersPaginated(
@@ -52,18 +58,21 @@ export class UserController {
   }
 
   // #8
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Get('users/:userId')
   getUser(@Param('userId') userId: string) {
     return this.users.getUser(BigInt(userId));
   }
 
   // #9
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Delete('delete-user/:userId')
   deleteUser(@Param('userId') userId: string) {
     return this.users.deleteUser(BigInt(userId));
   }
 
   // #10
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Put('update-user/:userId')
   updateUser(
     @Param('userId') userId: string,
@@ -74,6 +83,7 @@ export class UserController {
   }
 
   // #11 — raw JSON boolean body.
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Put('users/toggle/:userId')
   toggle(@Param('userId') userId: string, @Body() status: boolean) {
     return this.users.updateUserStatus(BigInt(userId), status);
@@ -87,6 +97,7 @@ export class UserController {
   }
 
   // #13
+  @Authenticated()
   @Get('loggedIn-user')
   loggedInUser(@CurrentUser() user: AuthUser) {
     return this.users.getLoggedInUser(user);
@@ -111,12 +122,14 @@ export class UserController {
   }
 
   // Self-service — update the current user's own profile.
+  @Authenticated()
   @Put('profile')
   updateProfile(@Body() dto: UpdateProfileDto, @CurrentUser() user: AuthUser) {
     return this.users.updateOwnProfile(BigInt(user.id), dto);
   }
 
   // Self-service — change the current user's password (knowing the current one).
+  @Authenticated()
   @Post('change-password')
   changeOwnPassword(
     @Body() dto: ChangeOwnPasswordDto,
@@ -126,6 +139,7 @@ export class UserController {
   }
 
   // #16
+  @Authenticated()
   @Post('logout')
   logout() {
     return this.users.logout();

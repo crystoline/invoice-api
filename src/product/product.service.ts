@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { toSpringPage } from '../common/dto/page';
 import { AuthUser } from '../common/decorators/current-user.decorator';
-import { Role } from '../common/enums/role.enum';
+import { isPlatformAdmin } from '../common/authz/permissions';
 import { ProductRequestDto } from './dto/product.dto';
 import { mapProductDTO, mapProductEntity } from './product.mapper';
 
@@ -11,11 +11,12 @@ import { mapProductDTO, mapProductEntity } from './product.mapper';
 export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Business membership and role are enforced by AuthorizationGuard per route.
   private isAdmin(user: AuthUser): boolean {
-    return user.roles.includes(Role.ADMIN);
+    return isPlatformAdmin(user);
   }
 
-  // 6.1 — any authenticated user
+  // 6.1 — WRITE (guard)
   async createProduct(
     businessId: bigint,
     dto: ProductRequestDto,
@@ -69,24 +70,12 @@ export class ProductService {
     }
   }
 
-  // 6.3 — owner or member (null-safe category)
-  async getProductsForBusiness(
-    businessId: bigint,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  // 6.3 — VIEW (guard; null-safe category)
+  async getProductsForBusiness(businessId: bigint): Promise<ResponseObject> {
     const business = await this.prisma.businesses.findUnique({
       where: { id: businessId },
-      include: { business_members: true },
     });
     if (!business) throw new Error('Business not found');
-    const isOwner = business.owner_id === user.id;
-    const isMember = business.business_members.some(
-      (m) => m.user_id === user.id,
-    );
-    if (!isOwner && !isMember)
-      return fail(
-        'Failed to fetch Business  products: You need to belong to this business',
-      );
     try {
       const products = await this.prisma.products.findMany({
         where: { business_id: businessId },
@@ -128,7 +117,7 @@ export class ProductService {
     }
   }
 
-  // 6.5 — any auth (500 if not found, per legacy)
+  // 6.5 — VIEW (guard; 500 if not found, per legacy)
   async getProduct(productId: bigint): Promise<ResponseObject> {
     const product = await this.prisma.products.findUnique({
       where: { id: productId },
@@ -137,7 +126,7 @@ export class ProductService {
     return ok('Product fetched', mapProductDTO(product));
   }
 
-  // 6.6 — any auth (businessId unused, per legacy)
+  // 6.6 — WRITE (guard checks the product belongs to businessId)
   async updateProduct(
     _businessId: bigint,
     productId: bigint,
@@ -165,11 +154,10 @@ export class ProductService {
     }
   }
 
-  // 6.7 — owner or admin
+  // 6.7 — WRITE (guard)
   async toggleProductStatus(
     businessId: bigint,
     productId: bigint,
-    user: AuthUser,
   ): Promise<ResponseObject> {
     const product = await this.prisma.products.findUnique({
       where: { id: productId },
@@ -181,22 +169,17 @@ export class ProductService {
     if (!business) throw new Error('Business not found');
     if (product.business_id !== businessId)
       return fail('Product does not belong to the specified business.');
-    if (business.owner_id === user.id || this.isAdmin(user)) {
-      try {
-        const updated = await this.prisma.products.update({
-          where: { id: productId },
-          data: { is_product_active: !product.is_product_active },
-        });
-        return ok('Product toggled successfully', mapProductDTO(updated));
-      } catch (e) {
-        return fail(
-          `Failed to toggle product for business====== ${(e as Error).message}`,
-        );
-      }
+    try {
+      const updated = await this.prisma.products.update({
+        where: { id: productId },
+        data: { is_product_active: !product.is_product_active },
+      });
+      return ok('Product toggled successfully', mapProductDTO(updated));
+    } catch (e) {
+      return fail(
+        `Failed to toggle product for business====== ${(e as Error).message}`,
+      );
     }
-    return fail(
-      'Failed to fetch products, only an Admin can perform this action ',
-    );
   }
 
   // 6.8 — destructive; clean path, SUPER_ADMIN at controller (no wrong-table reset)

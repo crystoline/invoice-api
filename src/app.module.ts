@@ -33,6 +33,8 @@ import { CustomerPortalModule } from './customer-portal/customer-portal.module';
 import { AdminModule } from './admin/admin.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
+import { AuthzModule } from './common/authz/authz.module';
+import { AuthorizationGuard } from './common/authz/authorization.guard';
 import { validateEnv } from './config/env.validation';
 
 @Module({
@@ -49,6 +51,7 @@ import { validateEnv } from './config/env.validation';
       serveRoot: '/uploads',
     }),
     PrismaModule,
+    AuthzModule,
     EmailModule,
     PdfModule,
     StorageModule,
@@ -76,10 +79,12 @@ import { validateEnv } from './config/env.validation';
   controllers: [AppController],
   providers: [
     AppService,
-    // Global rate limiting first, then JWT on every route except @Public(), then @Roles().
+    // Rate limiting, then JWT on every route except @Public(), then platform
+    // @Roles(), then business membership/permission (fails closed — see AuthorizationGuard).
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_GUARD, useClass: AuthorizationGuard },
   ],
 })
 export class AppModule {}

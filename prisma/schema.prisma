@@ -57,6 +57,8 @@ model bills {
 model business_members {
   business_id BigInt
   user_id     BigInt
+  /// ADMIN | MEMBER | VIEWER — see BusinessRole. The owner is businesses.owner_id, not a row here.
+  role        String     @default("MEMBER") @db.VarChar(16)
   users       users      @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKl3se6j2mob8wdx6tjckpx0qjt")
   businesses  businesses @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKo01cepu6mek8gfi8k0sr9epxg")
 
@@ -94,6 +96,7 @@ model businesses {
   invoices                                     invoices[]
   products                                     products[]
   recurringinvoices                            recurringinvoices[]
+  vendors                                      vendors[]
   users_users_selected_business_idTobusinesses users[]              @relation("users_selected_business_idTobusinesses")
 
   @@index([owner_id], map: "FKdh1y7wew1fqwy531d5ojohod5")
@@ -368,8 +371,13 @@ model vendors {
   email           String?           @db.VarChar(255)
   name            String?           @db.VarChar(255)
   status          Boolean?          @db.Bit(1)
+  /// Null only for legacy vendors no business ever billed — visible to platform admins only.
+  business_id     BigInt?
   bills           bills[]
   vendor_products vendor_products[]
+  businesses      businesses?       @relation(fields: [business_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([business_id])
 }
 
 model payments {

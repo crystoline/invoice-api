@@ -5,8 +5,6 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from './stripe.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
-import { AuthUser } from '../common/decorators/current-user.decorator';
-import { Role } from '../common/enums/role.enum';
 import { InitPaymentDto, ManualPaymentDto } from './dto/payment.dto';
 
 const n = (d: Prisma.Decimal | null): number => (d != null ? Number(d) : 0);
@@ -20,10 +18,6 @@ export class PaymentService {
     private readonly config: ConfigService,
     private readonly stripe: StripeService,
   ) {}
-
-  private isAdmin(user: AuthUser): boolean {
-    return user.roles.includes(Role.ADMIN);
-  }
 
   /** Mark an invoice paid (or partially) and upsert a SUCCESS payment record. */
   private async recordSuccess(
@@ -74,11 +68,10 @@ export class PaymentService {
     }
   }
 
+  // Callers are checked by AuthorizationGuard: WRITE on the invoice's business.
+
   // POST /api/payments/paystack/initialize
-  async initializePaystack(
-    dto: InitPaymentDto,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  async initializePaystack(dto: InitPaymentDto): Promise<ResponseObject> {
     const key = this.config.get<string>('PAYSTACK_SECRET_KEY');
     if (!key) return fail('Paystack is not configured');
     const invoice = await this.prisma.invoices.findUnique({
@@ -86,8 +79,6 @@ export class PaymentService {
       include: { customers: true, businesses: true },
     });
     if (!invoice) return fail('Invoice not found');
-    if (invoice.businesses.owner_id !== user.id && !this.isAdmin(user))
-      return fail('Access denied');
     try {
       const frontend =
         this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
@@ -199,18 +190,13 @@ export class PaymentService {
   }
 
   // POST /api/payments/stripe/create-intent
-  async createStripeIntent(
-    dto: InitPaymentDto,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  async createStripeIntent(dto: InitPaymentDto): Promise<ResponseObject> {
     if (!this.stripe.configured) return fail('Stripe is not configured');
     const invoice = await this.prisma.invoices.findUnique({
       where: { id: BigInt(dto.invoiceId ?? 0) },
       include: { businesses: true },
     });
     if (!invoice) return fail('Invoice not found');
-    if (invoice.businesses.owner_id !== user.id && !this.isAdmin(user))
-      return fail('Access denied');
     try {
       const intent = await this.stripe.createPaymentIntent(
         Math.round(n(invoice.total_amount) * 100),
@@ -267,17 +253,12 @@ export class PaymentService {
   }
 
   // POST /api/payments/manual — record a cash/transfer payment.
-  async recordManual(
-    dto: ManualPaymentDto,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  async recordManual(dto: ManualPaymentDto): Promise<ResponseObject> {
     const invoice = await this.prisma.invoices.findUnique({
       where: { id: BigInt(dto.invoiceId ?? 0) },
       include: { businesses: true },
     });
     if (!invoice) return fail('Invoice not found');
-    if (invoice.businesses.owner_id !== user.id && !this.isAdmin(user))
-      return fail('Access denied');
     const amount =
       dto.amount ?? n(invoice.total_amount) - n(invoice.amount_paid);
     await this.recordSuccess(

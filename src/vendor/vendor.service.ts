@@ -12,7 +12,13 @@ export class VendorService {
   constructor(private readonly prisma: PrismaService) {}
 
   private mapVendor(v: vendors) {
-    return { id: v.id, name: v.name, email: v.email, status: v.status };
+    return {
+      id: v.id,
+      businessId: v.business_id,
+      name: v.name,
+      email: v.email,
+      status: v.status,
+    };
   }
 
   private mapVendorProduct(vp: vendor_products) {
@@ -26,16 +32,26 @@ export class VendorService {
   }
 
   // 4.1
+  // 4.1 — vendors belong to a business; email is unique within it.
   async createVendor(dto: VendorRequestDto): Promise<ResponseObject> {
     try {
+      if (dto.businessId == null) return fail('businessId is required');
+      const businessId = BigInt(dto.businessId);
       if (
         dto.email &&
-        (await this.prisma.vendors.findFirst({ where: { email: dto.email } }))
+        (await this.prisma.vendors.findFirst({
+          where: { email: dto.email, business_id: businessId },
+        }))
       ) {
         return fail('This email is already registered as a vendor');
       }
       const v = await this.prisma.vendors.create({
-        data: { email: dto.email, name: dto.name, status: dto.status },
+        data: {
+          email: dto.email,
+          name: dto.name,
+          status: dto.status,
+          business_id: businessId,
+        },
       });
       return ok('Vendor added successfully', this.mapVendor(v));
     } catch (e) {
@@ -43,9 +59,20 @@ export class VendorService {
     }
   }
 
-  // 4.2 — clean list path (fixed double-setResponseCode → proper 00)
+  // Platform-admin view: every vendor, including legacy unassigned ones.
   async getAllVendors(): Promise<ResponseObject> {
     const all = await this.prisma.vendors.findMany();
+    return ok(
+      'Vendors fetched successfully',
+      all.map((v) => this.mapVendor(v)),
+    );
+  }
+
+  async getVendorsForBusiness(businessId: bigint): Promise<ResponseObject> {
+    const all = await this.prisma.vendors.findMany({
+      where: { business_id: businessId },
+      orderBy: { name: 'asc' },
+    });
     return ok(
       'Vendors fetched successfully',
       all.map((v) => this.mapVendor(v)),

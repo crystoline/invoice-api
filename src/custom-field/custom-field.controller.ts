@@ -12,6 +12,7 @@ import {
   CurrentUser,
   type AuthUser,
 } from '../common/decorators/current-user.decorator';
+import { Authenticated } from '../common/authz/authz.decorators';
 import { InvoiceConfigRequestDto } from './dto/custom-field.dto';
 
 /**
@@ -19,6 +20,7 @@ import { InvoiceConfigRequestDto } from './dto/custom-field.dto';
  * Clean routes (the legacy `@PostMapping(" ")`/`@GetMapping(" ")` resolved to
  * `/%20`; not reproduced). Scoped to the authenticated owner.
  */
+@Authenticated() // every route is scoped to the caller's own data
 @Controller('config/custom-fields')
 export class CustomFieldController {
   constructor(private readonly service: CustomFieldService) {}

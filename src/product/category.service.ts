@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { AuthUser } from '../common/decorators/current-user.decorator';
-import { Role } from '../common/enums/role.enum';
+import { isPlatformAdmin } from '../common/authz/permissions';
 import { mapProductDTO } from './product.mapper';
 
 @Injectable()
@@ -15,7 +15,7 @@ export class CategoryService {
     description: string | undefined,
     user: AuthUser,
   ): Promise<ResponseObject> {
-    if (!user.roles.includes(Role.ADMIN)) {
+    if (!isPlatformAdmin(user)) {
       return fail(
         'Failed to create Category: Only Admin privilege can perform this action',
       );
@@ -34,7 +34,7 @@ export class CategoryService {
     }
   }
 
-  // 7.2 — any auth
+  // 7.2 — WRITE on the product's business (guard)
   async addProductToCategory(
     categoryId: bigint,
     productId: bigint,
@@ -61,29 +61,19 @@ export class CategoryService {
     }
   }
 
-  // 7.3 — owner or member
+  // 7.3 — VIEW (guard)
   async getProductsByCategoryForBusiness(
     categoryId: bigint,
     businessId: bigint,
-    user: AuthUser,
   ): Promise<ResponseObject> {
     const business = await this.prisma.businesses.findUnique({
       where: { id: businessId },
-      include: { business_members: true },
     });
     if (!business) throw new Error('Business not found');
     const category = await this.prisma.categories.findUnique({
       where: { id: categoryId },
     });
     if (!category) throw new Error('Category not found');
-    const isOwner = business.owner_id === user.id;
-    const isMember = business.business_members.some(
-      (m) => m.user_id === user.id,
-    );
-    if (!isOwner && !isMember)
-      return fail(
-        'Failed to fetch Business Category products: You need to belong to this business',
-      );
     try {
       const products = await this.prisma.products.findMany({
         where: { business_id: businessId, category_id: categoryId },

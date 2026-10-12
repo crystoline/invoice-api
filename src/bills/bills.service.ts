@@ -95,6 +95,22 @@ export class BillsService {
     });
   }
 
+  /** Lines may link catalogue products — only the bill's own business's. */
+  private async assertProductsIn(
+    lines: BillLine[],
+    businessId: bigint | null,
+  ): Promise<void> {
+    const ids = [
+      ...new Set(lines.flatMap((l) => (l.product_id ? [l.product_id] : []))),
+    ];
+    if (!ids.length) return;
+    const found = await this.prisma.products.count({
+      where: { id: { in: ids }, business_id: businessId ?? undefined },
+    });
+    if (businessId == null || found !== ids.length)
+      throw new Error('Product not found');
+  }
+
   // POST /bills/bill — record a bill for a business against a vendor.
   // The bill is scoped to the business and "billed" to the current user (the
   // person recording it); the vendor is the party billing the business.
@@ -114,13 +130,15 @@ export class BillsService {
         const vendor = await this.prisma.vendors.findUnique({
           where: { id: BigInt(dto.vendorId) },
         });
-        if (!vendor) throw new Error('Vendor not found');
+        if (!vendor || vendor.business_id !== business.id)
+          throw new Error('Vendor not found');
         vendorId = vendor.id;
       }
 
       // With lines, the total is their sum (never trust a client total);
       // without, fall back to the legacy single-amount bill.
       const lines = toLines(dto.items);
+      await this.assertProductsIn(lines, business.id);
       const bill = await this.prisma.bills.create({
         data: {
           bill_number: dto.billNumber,
@@ -221,6 +239,7 @@ export class BillsService {
       // `items` present = replace every line (and re-derive the total);
       // absent = leave the lines alone.
       const lines = dto.items ? toLines(dto.items) : null;
+      if (lines) await this.assertProductsIn(lines, existing.business_id);
       const updated = await this.prisma.$transaction(async (tx) => {
         if (lines) await this.deleteItems(tx, billId);
         return tx.bills.update({

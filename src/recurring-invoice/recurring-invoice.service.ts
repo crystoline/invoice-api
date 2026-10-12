@@ -3,8 +3,6 @@ import { Prisma, recurringinvoices } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
-import { AuthUser } from '../common/decorators/current-user.decorator';
-import { Role } from '../common/enums/role.enum';
 import { carryDueDate } from '../common/util/date.util';
 import {
   CreateRecurringInvoiceDto,
@@ -24,10 +22,6 @@ export class RecurringInvoiceService {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
   ) {}
-
-  private isAdmin(user: AuthUser): boolean {
-    return user.roles.includes(Role.ADMIN);
-  }
 
   private mapDTO(r: recurringinvoices) {
     return {
@@ -80,33 +74,17 @@ export class RecurringInvoiceService {
     return d;
   }
 
-  private async ownsBusiness(
-    businessId: bigint | null,
-    user: AuthUser,
-  ): Promise<boolean> {
-    if (this.isAdmin(user)) return true;
-    if (businessId == null) return false;
-    const b = await this.prisma.businesses.findUnique({
-      where: { id: businessId },
-    });
-    return !!b && b.owner_id === user.id;
-  }
+  // Access (membership + role) is enforced per route by AuthorizationGuard;
+  // a schedule is scoped through its template invoice's business.
 
-  // POST /api/recurring-invoices
-  async create(
-    dto: CreateRecurringInvoiceDto,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  // POST /api/recurring-invoices — WRITE on the template's business (guard)
+  async create(dto: CreateRecurringInvoiceDto): Promise<ResponseObject> {
     try {
       if (!dto.templateInvoiceId) return fail('templateInvoiceId is required');
       const template = await this.prisma.invoices.findUnique({
         where: { id: BigInt(dto.templateInvoiceId) },
-        include: { businesses: true },
       });
       if (!template) return fail('Template invoice not found');
-      if (template.businesses.owner_id !== user.id && !this.isAdmin(user)) {
-        return fail('You do not have permission to schedule this invoice');
-      }
       const frequency = dto.frequency ?? 'MONTHLY';
       const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
       const rec = await this.prisma.recurringinvoices.create({
@@ -138,14 +116,8 @@ export class RecurringInvoiceService {
   }
 
   // GET /api/recurring-invoices/business/:businessId
-  async getByBusiness(
-    businessId: bigint,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  async getByBusiness(businessId: bigint): Promise<ResponseObject> {
     try {
-      if (!(await this.ownsBusiness(businessId, user))) {
-        return fail('You do not have access to this business');
-      }
       const items = await this.prisma.recurringinvoices.findMany({
         where: { business_id: businessId },
         orderBy: { next_invoice_date: 'asc' },
@@ -162,13 +134,11 @@ export class RecurringInvoiceService {
   }
 
   // GET /api/recurring-invoices/:id
-  async getById(id: bigint, user: AuthUser): Promise<ResponseObject> {
+  async getById(id: bigint): Promise<ResponseObject> {
     const rec = await this.prisma.recurringinvoices.findUnique({
       where: { id },
     });
     if (!rec) return fail('Recurring invoice not found');
-    if (!(await this.ownsBusiness(rec.business_id, user)))
-      return fail('Access denied');
     return ok('Recurring invoice fetched successfully', this.mapDTO(rec));
   }
 
@@ -176,15 +146,12 @@ export class RecurringInvoiceService {
   async update(
     id: bigint,
     dto: UpdateRecurringInvoiceDto,
-    user: AuthUser,
   ): Promise<ResponseObject> {
     try {
       const rec = await this.prisma.recurringinvoices.findUnique({
         where: { id },
       });
       if (!rec) return fail('Recurring invoice not found');
-      if (!(await this.ownsBusiness(rec.business_id, user)))
-        return fail('Access denied');
       const updated = await this.prisma.recurringinvoices.update({
         where: { id },
         data: {
@@ -205,14 +172,12 @@ export class RecurringInvoiceService {
   }
 
   // DELETE /api/recurring-invoices/:id
-  async remove(id: bigint, user: AuthUser): Promise<ResponseObject> {
+  async remove(id: bigint): Promise<ResponseObject> {
     try {
       const rec = await this.prisma.recurringinvoices.findUnique({
         where: { id },
       });
       if (!rec) return fail('Recurring invoice not found');
-      if (!(await this.ownsBusiness(rec.business_id, user)))
-        return fail('Access denied');
       await this.prisma.recurringinvoices.delete({ where: { id } });
       if (rec.invoice_id) {
         await this.prisma.invoices
@@ -230,17 +195,11 @@ export class RecurringInvoiceService {
     }
   }
 
-  async setActive(
-    id: bigint,
-    active: boolean,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  async setActive(id: bigint, active: boolean): Promise<ResponseObject> {
     const rec = await this.prisma.recurringinvoices.findUnique({
       where: { id },
     });
     if (!rec) return fail('Recurring invoice not found');
-    if (!(await this.ownsBusiness(rec.business_id, user)))
-      return fail('Access denied');
     const updated = await this.prisma.recurringinvoices.update({
       where: { id },
       data: { is_active: active },

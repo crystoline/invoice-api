@@ -4,17 +4,18 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { toSpringPage } from '../common/dto/page';
 import { AuthUser } from '../common/decorators/current-user.decorator';
-import { Role } from '../common/enums/role.enum';
+import { isPlatformAdmin } from '../common/authz/permissions';
 import { CustomerRequestDto } from './dto/customer.dto';
 
 @Injectable()
 export class CustomerService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Owner-tenancy filter: business must exist AND be owned by the user. */
-  private findBusinessForOwner(businessId: bigint, userId: bigint | undefined) {
+  // Membership and role are checked by AuthorizationGuard (@BusinessPermission);
+  // the service only confirms the business exists and the customer is in it.
+  private findBusiness(businessId: bigint) {
     return this.prisma.businesses.findFirst({
-      where: { id: businessId, owner_id: userId },
+      where: { id: businessId },
     });
   }
 
@@ -40,16 +41,14 @@ export class CustomerService {
     };
   }
 
-  // 5.1 — owner only
+  // 5.1 — guarded by @BusinessPermission
   async createCustomer(
     businessId: bigint,
     dto: CustomerRequestDto,
-    user: AuthUser,
   ): Promise<ResponseObject> {
     try {
-      const business = await this.findBusinessForOwner(businessId, user.id);
-      if (!business)
-        throw new Error('Business not found or user does not own the business');
+      const business = await this.findBusiness(businessId);
+      if (!business) throw new Error('Business not found');
       const created = await this.prisma.customers.create({
         data: {
           email: dto.email,
@@ -70,7 +69,7 @@ export class CustomerService {
 
   // 5.2 — admin only (fixed admin check)
   async getAllCustomers(user: AuthUser): Promise<ResponseObject> {
-    if (!user.roles.includes(Role.ADMIN)) {
+    if (!isPlatformAdmin(user)) {
       return fail(
         'Only an Admin is allowed to fetch all customers, please fetch business customers instead',
       );
@@ -82,16 +81,14 @@ export class CustomerService {
     );
   }
 
-  // 5.3 — owner only (not-owner/not-found → 500, per legacy)
+  // 5.3 — guarded by @BusinessPermission
   async getBusinessCustomersPaginated(
     businessId: bigint,
     page: number,
     size: number,
-    user: AuthUser,
   ): Promise<ResponseObject> {
-    const business = await this.findBusinessForOwner(businessId, user.id);
-    if (!business)
-      throw new Error('Business not found or user does not own the business');
+    const business = await this.findBusiness(businessId);
+    if (!business) throw new Error('Business not found');
     try {
       const [items, total] = await this.prisma.$transaction([
         this.prisma.customers.findMany({
@@ -117,16 +114,14 @@ export class CustomerService {
     }
   }
 
-  // 5.4 — owner only
+  // 5.4 — guarded by @BusinessPermission
   async getBusinessCustomer(
     businessId: bigint,
     customerId: bigint,
-    user: AuthUser,
   ): Promise<ResponseObject> {
     try {
-      const business = await this.findBusinessForOwner(businessId, user.id);
-      if (!business)
-        throw new Error('Business not found or user does not own the business');
+      const business = await this.findBusiness(businessId);
+      if (!business) throw new Error('Business not found');
       const customer = await this.prisma.customers.findFirst({
         where: { id: customerId, business_id: businessId },
       });
@@ -140,17 +135,15 @@ export class CustomerService {
     }
   }
 
-  // 5.5 — owner only
+  // 5.5 — guarded by @BusinessPermission
   async updateCustomer(
     businessId: bigint,
     customerId: bigint,
     dto: CustomerRequestDto,
-    user: AuthUser,
   ): Promise<ResponseObject> {
     try {
-      const business = await this.findBusinessForOwner(businessId, user.id);
-      if (!business)
-        throw new Error('Business not found or user does not own the business');
+      const business = await this.findBusiness(businessId);
+      if (!business) throw new Error('Business not found');
       const customer = await this.prisma.customers.findFirst({
         where: { id: customerId, business_id: businessId },
       });
@@ -176,16 +169,14 @@ export class CustomerService {
     }
   }
 
-  // 5.6 — owner only
+  // 5.6 — guarded by @BusinessPermission
   async deleteCustomer(
     businessId: bigint,
     customerId: bigint,
-    user: AuthUser,
   ): Promise<ResponseObject> {
     try {
-      const business = await this.findBusinessForOwner(businessId, user.id);
-      if (!business)
-        throw new Error('Business not found or user does not own the business');
+      const business = await this.findBusiness(businessId);
+      if (!business) throw new Error('Business not found');
       const customer = await this.prisma.customers.findFirst({
         where: { id: customerId, business_id: businessId },
       });

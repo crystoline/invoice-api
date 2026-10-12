@@ -7,6 +7,7 @@ import {
   type AuthUser,
 } from '../common/decorators/current-user.decorator';
 import { Role } from '../common/enums/role.enum';
+import { Roles } from '../common/decorators/roles.decorator';
 import { fail } from '../common/dto/response-object';
 import { SignupDto, LoginDto, ChangePasswordEmailDto } from './dto/auth.dto';
 
@@ -25,7 +26,8 @@ export class AuthController {
     return this.auth.createUser(dto, null);
   }
 
-  // #2 — manual ROLE_SUPER_ADMIN check (returns 200-fail like legacy, not 403).
+  // #2 — super admins only.
+  @Roles(Role.SUPER_ADMIN)
   @Post('create-admin-user')
   createAdmin(@Body() dto: SignupDto, @CurrentUser() user: AuthUser) {
     if (!user.roles.includes(Role.SUPER_ADMIN)) {

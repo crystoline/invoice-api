@@ -2,8 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
-import { AuthUser } from '../common/decorators/current-user.decorator';
-import { Role } from '../common/enums/role.enum';
 import { ReportQueryDto } from './dto/report-query.dto';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -52,24 +50,17 @@ export class ReportService {
   }
 
   /**
-   * Owner-tenancy guard (mirrors the rest of the app): the business must exist
-   * and be owned by the caller — or the caller must be an admin. Returns a
-   * `fail()` envelope to short-circuit on, or null when access is granted.
+   * The business must exist. Membership and role (VIEW) are enforced by
+   * AuthorizationGuard via the controller's @BusinessPermission. Returns a
+   * `fail()` envelope to short-circuit on, or null to proceed.
    */
   private async assertBusinessAccess(
     businessId: bigint,
-    user: AuthUser,
   ): Promise<ResponseObject | null> {
     const business = await this.prisma.businesses.findUnique({
       where: { id: businessId },
     });
-    if (!business) return fail('Business not found');
-    if (business.owner_id !== user.id && !user.roles.includes(Role.ADMIN)) {
-      return fail(
-        'You do not have permission to view reports for this business',
-      );
-    }
-    return null;
+    return business ? null : fail('Business not found');
   }
 
   /**
@@ -130,14 +121,11 @@ export class ReportService {
 
   // ── GET /api/reports/revenue ───────────────────────────────────────────────
 
-  async revenue(
-    query: ReportQueryDto,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  async revenue(query: ReportQueryDto): Promise<ResponseObject> {
     try {
       const businessId = this.parseBusinessId(query.businessId);
       if (businessId == null) return fail('A valid businessId is required');
-      const denied = await this.assertBusinessAccess(businessId, user);
+      const denied = await this.assertBusinessAccess(businessId);
       if (denied) return denied;
 
       const range = this.parseRange(query.from, query.to);
@@ -272,14 +260,11 @@ export class ReportService {
 
   // ── GET /api/reports/expenses ──────────────────────────────────────────────
 
-  async expenses(
-    query: ReportQueryDto,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  async expenses(query: ReportQueryDto): Promise<ResponseObject> {
     try {
       const businessId = this.parseBusinessId(query.businessId);
       if (businessId == null) return fail('A valid businessId is required');
-      const denied = await this.assertBusinessAccess(businessId, user);
+      const denied = await this.assertBusinessAccess(businessId);
       if (denied) return denied;
 
       const cur = await this.resolveCurrency(businessId, query.currency);
@@ -366,11 +351,11 @@ export class ReportService {
 
   // ── GET /api/reports/aging ─────────────────────────────────────────────────
 
-  async aging(query: ReportQueryDto, user: AuthUser): Promise<ResponseObject> {
+  async aging(query: ReportQueryDto): Promise<ResponseObject> {
     try {
       const businessId = this.parseBusinessId(query.businessId);
       if (businessId == null) return fail('A valid businessId is required');
-      const denied = await this.assertBusinessAccess(businessId, user);
+      const denied = await this.assertBusinessAccess(businessId);
       if (denied) return denied;
 
       const range = this.parseRange(query.from, query.to);
@@ -451,14 +436,11 @@ export class ReportService {
 
   // ── GET /api/reports/tax-summary ───────────────────────────────────────────
 
-  async taxSummary(
-    query: ReportQueryDto,
-    user: AuthUser,
-  ): Promise<ResponseObject> {
+  async taxSummary(query: ReportQueryDto): Promise<ResponseObject> {
     try {
       const businessId = this.parseBusinessId(query.businessId);
       if (businessId == null) return fail('A valid businessId is required');
-      const denied = await this.assertBusinessAccess(businessId, user);
+      const denied = await this.assertBusinessAccess(businessId);
       if (denied) return denied;
 
       const range = this.parseRange(query.from, query.to);

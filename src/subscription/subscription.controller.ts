@@ -4,9 +4,11 @@ import {
   CurrentUser,
   type AuthUser,
 } from '../common/decorators/current-user.decorator';
+import { Authenticated } from '../common/authz/authz.decorators';
 import { SubscribeDto, ChangePlanDto } from './dto/subscription.dto';
 
 /** SubscriptionController — `/api/subscription`. */
+@Authenticated() // every route is scoped to the caller's own data
 @Controller('subscription')
 export class SubscriptionController {
   constructor(private readonly subscriptions: SubscriptionService) {}

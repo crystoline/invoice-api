@@ -16,6 +16,8 @@ import {
 } from '../common/decorators/current-user.decorator';
 import { Role } from '../common/enums/role.enum';
 import { ProductRequestDto } from './dto/product.dto';
+import { BusinessPermission } from '../common/authz/authz.decorators';
+import { Permission } from '../common/authz/permissions';
 
 /**
  * ProductController — `/api/products`. Literal routes declared before `:productId`.
@@ -26,6 +28,7 @@ import { ProductRequestDto } from './dto/product.dto';
 export class ProductController {
   constructor(private readonly products: ProductService) {}
 
+  @BusinessPermission(Permission.WRITE, { param: 'businessId' })
   @Post(':businessId/product')
   create(
     @Param('businessId') businessId: string,
@@ -35,11 +38,13 @@ export class ProductController {
     return this.products.createProduct(BigInt(businessId), dto, user);
   }
 
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN) // every business's products
   @Get()
   getAll(@CurrentUser() user: AuthUser) {
     return this.products.getAllProducts(user);
   }
 
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Get('paginated-products')
   paginated(
     @Query('page') page = '0',
@@ -53,19 +58,26 @@ export class ProductController {
     );
   }
 
+  @BusinessPermission(Permission.VIEW, { param: 'businessId' })
   @Get(':businessId/business-products')
-  forBusiness(
-    @Param('businessId') businessId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.products.getProductsForBusiness(BigInt(businessId), user);
+  forBusiness(@Param('businessId') businessId: string) {
+    return this.products.getProductsForBusiness(BigInt(businessId));
   }
 
+  @BusinessPermission(Permission.VIEW, {
+    resource: 'product',
+    idParam: 'productId',
+  })
   @Get(':productId')
   getOne(@Param('productId') productId: string) {
     return this.products.getProduct(BigInt(productId));
   }
 
+  @BusinessPermission(Permission.WRITE, {
+    resource: 'product',
+    idParam: 'productId',
+    param: 'businessId',
+  })
   @Put(':businessId/:productId')
   update(
     @Param('businessId') businessId: string,
@@ -79,16 +91,19 @@ export class ProductController {
     );
   }
 
+  @BusinessPermission(Permission.WRITE, {
+    resource: 'product',
+    idParam: 'productId',
+    param: 'businessId',
+  })
   @Post('toggle-product/:businessId/:productId')
   toggle(
     @Param('businessId') businessId: string,
     @Param('productId') productId: string,
-    @CurrentUser() user: AuthUser,
   ) {
     return this.products.toggleProductStatus(
       BigInt(businessId),
       BigInt(productId),
-      user,
     );
   }
 
@@ -99,7 +114,10 @@ export class ProductController {
   }
 
   @Delete(':productId')
-  @Roles(Role.ADMIN)
+  @BusinessPermission(Permission.DELETE, {
+    resource: 'product',
+    idParam: 'productId',
+  })
   remove(@Param('productId') productId: string) {
     return this.products.deleteProduct(BigInt(productId));
   }
