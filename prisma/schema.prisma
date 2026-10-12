@@ -194,6 +194,8 @@ model invoices {
   due_date          DateTime?          @db.Date
   amount_paid       Decimal?           @db.Decimal(38, 2)
   paid_date         DateTime?          @db.Date
+  notes             String?            @db.Text
+  additional_info   String?            @db.Text
   business_id       BigInt
   customer_id       BigInt
   invoice_items     invoice_items[]

@@ -58,6 +58,10 @@ export class CustomerPortalService {
       total: invoice.total_amount != null ? Number(invoice.total_amount) : null,
       currency: invoice.currency_code,
       status: invoice.invoice_status,
+      invoiceDate: invoice.invoice_date,
+      dueDate: invoice.due_date,
+      notes: invoice.notes,
+      additionalInfo: invoice.additional_info,
       businessName: invoice.businesses.business_name,
       customerName:
         `${invoice.customers.first_name ?? ''} ${invoice.customers.last_name ?? ''}`.trim(),

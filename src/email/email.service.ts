@@ -22,6 +22,9 @@ export interface InvoiceEmailModel {
   currencyCode: string;
   totalAmount: number;
   amountPaid: number;
+  /** Free text from the invoice; line breaks are kept. */
+  notes?: string | null;
+  additionalInfo?: string | null;
   items: InvoiceEmailItem[];
   /** Attached as Invoice-<number>.pdf when present. */
   pdf?: Buffer | null;
@@ -265,6 +268,23 @@ export class EmailService implements OnModuleInit {
     const balance = Math.max(totalAmount - (amountPaid || 0), 0);
     const money = (n: number) => formatMoney(n, currencyCode);
 
+    const textBlocks = [
+      { title: 'Notes', body: model.notes?.trim() },
+      { title: 'Additional information', body: model.additionalInfo?.trim() },
+    ].filter((b): b is { title: string; body: string } => !!b.body);
+
+    const blocksHtml = textBlocks
+      .map(
+        (b) => `
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:16px 0 0;border:1px solid ${BORDER};border-radius:8px">
+        <tr><td style="padding:14px 16px">
+          <p style="margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:${MUTED}">${esc(b.title)}</p>
+          <p style="margin:0;font-size:14px;line-height:1.55;color:${TEXT}">${esc(b.body).replace(/\r?\n/g, '<br>')}</p>
+        </td></tr>
+      </table>`,
+      )
+      .join('');
+
     const rows = items
       .map(
         (it, i) => `
@@ -312,7 +332,8 @@ export class EmailService implements OnModuleInit {
         ${amountPaid > 0 ? totalRow('Paid', `- ${money(amountPaid)}`) : ''}
         ${totalRow('Balance due', money(balance), true)}
       </table>
-      <div style="clear:both"></div>`;
+      <div style="clear:both"></div>
+      ${blocksHtml}`;
 
     const textLines = [
       `Hi ${customerName || 'there'},`,
@@ -328,13 +349,16 @@ export class EmailService implements OnModuleInit {
       `Total: ${money(totalAmount)}`,
       ...(amountPaid > 0 ? [`Paid: ${money(amountPaid)}`] : []),
       `Balance due: ${money(balance)}`,
+      ...textBlocks.flatMap((b) => ['', `${b.title}:`, b.body]),
       '',
       pdf ? 'A PDF copy of this invoice is attached.' : '',
     ];
 
     const html = this.layout({
       title: `Invoice ${esc(invoiceNumber)} from ${esc(businessName)}`,
-      preheader: `${money(balance)} due by ${formatDate(dueDate)} — invoice ${invoiceNumber}.`,
+      preheader: dueDate
+        ? `${money(balance)} due by ${formatDate(dueDate)} — invoice ${invoiceNumber}.`
+        : `${money(balance)} due — invoice ${invoiceNumber}.`,
       bodyHtml,
       note: 'Thank you for your business. Reply to this email if you have any questions about this invoice.',
     });

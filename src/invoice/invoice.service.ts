@@ -8,6 +8,11 @@ import { toSpringPage } from '../common/dto/page';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { Role } from '../common/enums/role.enum';
 import { mapProductEntity } from '../product/product.mapper';
+import {
+  carryDueDate,
+  isBeforeDay,
+  parseDateInput,
+} from '../common/util/date.util';
 import { InvoiceRequestDto, InvoiceApprovalDto } from './dto/invoice.dto';
 
 const CURRENCY_CODES = [
@@ -42,6 +47,12 @@ type InvoiceWithRelations = Prisma.invoicesGetPayload<{
 
 const num = (d: Prisma.Decimal | null): number | null =>
   d != null ? Number(d) : null;
+
+/** Trim free text; blank becomes null. `undefined` stays undefined (= "leave as is"). */
+const cleanText = (v: string | null | undefined): string | null | undefined =>
+  v === undefined ? undefined : v?.trim() || null;
+
+const DUE_BEFORE_ISSUE = 'Due date cannot be before the invoice date';
 
 @Injectable()
 export class InvoiceService {
@@ -93,6 +104,8 @@ export class InvoiceService {
       amountPaid: num(inv.amount_paid),
       dueDate: inv.due_date,
       paidDate: inv.paid_date,
+      notes: inv.notes,
+      additionalInfo: inv.additional_info,
       items: inv.invoice_items.map((it) => {
         const unitPrice = num(it.products?.unit_price);
         const quantity = it.quantity ?? 0;
@@ -208,6 +221,10 @@ export class InvoiceService {
     }
     if (customer.business_id !== business.id)
       return fail('Customer does not belong to the specified business');
+    const invoiceDate = parseDateInput(dto.invoiceDate) ?? new Date();
+    const dueDate = parseDateInput(dto.dueDate);
+    if (dueDate && isBeforeDay(dueDate, invoiceDate))
+      return fail(DUE_BEFORE_ISSUE);
     try {
       const { itemsData, total } = await this.buildItemsAndTotal(
         dto.items,
@@ -218,7 +235,10 @@ export class InvoiceService {
           invoice_number: await this.generateInvoiceNumber(),
           business_id: business.id,
           customer_id: customer.id,
-          invoice_date: new Date(),
+          invoice_date: invoiceDate,
+          due_date: dueDate,
+          notes: cleanText(dto.notes),
+          additional_info: cleanText(dto.additionalInfo),
           currency_code: dto.currencyCode,
           is_recurring: dto.isRecurring ?? dto.recurring ?? false,
           frequency: dto.frequency,
@@ -293,6 +313,15 @@ export class InvoiceService {
     if (!customer) throw new Error('Customer not found');
     if (customer.business_id !== business.id)
       return fail('Customer does not belong to the specified business');
+    // Omitted fields keep their stored value; an explicit null dueDate clears it.
+    const invoiceDate =
+      parseDateInput(dto.invoiceDate) ?? invoice.invoice_date ?? new Date();
+    const dueDate =
+      dto.dueDate === undefined
+        ? invoice.due_date
+        : parseDateInput(dto.dueDate);
+    if (dueDate && isBeforeDay(dueDate, invoiceDate))
+      return fail(DUE_BEFORE_ISSUE);
     try {
       const { itemsData, total } = await this.buildItemsAndTotal(
         dto.items,
@@ -304,7 +333,10 @@ export class InvoiceService {
       const updated = await this.prisma.invoices.update({
         where: { id: invoiceId },
         data: {
-          invoice_date: new Date(),
+          invoice_date: invoiceDate,
+          due_date: dueDate,
+          notes: cleanText(dto.notes),
+          additional_info: cleanText(dto.additionalInfo),
           is_recurring:
             dto.isRecurring ?? dto.recurring ?? invoice.is_recurring,
           frequency: dto.frequency,
@@ -471,6 +503,8 @@ export class InvoiceService {
         invoiceNumber: model.invoiceNumber ?? '',
         invoiceDate: model.invoiceDate,
         dueDate: model.dueDate ?? null,
+        notes: model.notes ?? null,
+        additionalInfo: model.additionalInfo ?? null,
         currencyCode: model.currencyCode ?? 'NGN',
         totalAmount: model.totalAmount ?? 0,
         amountPaid: model.amountPaid ?? 0,
@@ -549,6 +583,8 @@ export class InvoiceService {
       subtotal,
       discountTotal,
       currencyCode: inv.currency_code,
+      notes: inv.notes,
+      additionalInfo: inv.additional_info,
       items,
     };
   }
@@ -606,12 +642,16 @@ export class InvoiceService {
       if (!src) return fail('Invoice not found');
       if (src.businesses.owner_id !== user.id && !this.isAdmin(user))
         return fail('Access denied');
+      const now = new Date();
       const dup = await this.prisma.invoices.create({
         data: {
           invoice_number: await this.generateInvoiceNumber(),
           business_id: src.business_id,
           customer_id: src.customer_id,
-          invoice_date: new Date(),
+          invoice_date: now,
+          due_date: carryDueDate(src.invoice_date, src.due_date, now),
+          notes: src.notes,
+          additional_info: src.additional_info,
           currency_code: src.currency_code,
           is_recurring: false,
           frequency: src.frequency,

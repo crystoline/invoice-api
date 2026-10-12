@@ -41,6 +41,9 @@ export interface InvoicePdfModel {
   subtotal?: number | null;
   discountTotal?: number | null;
   currencyCode: string | null;
+  /** Free text shown under the totals; line breaks are kept. */
+  notes?: string | null;
+  additionalInfo?: string | null;
   items: InvoicePdfItem[];
 }
 
@@ -84,6 +87,14 @@ const safe = (v: string | number | bigint | null | undefined): string =>
     .replace(/[\r\n\t]+/g, ' ')
     // Keep printable ASCII plus the Latin-1 supplement; drop everything else.
     .replace(/[^\u0020-\u007E\u00A0-\u00FF]/g, '')
+    .trim();
+
+/** `safe`, but line by line, so multi-line notes keep the author's breaks. */
+const safeBlock = (v: string | null | undefined): string =>
+  String(v ?? '')
+    .split(/\r?\n/)
+    .map(safe)
+    .join('\n')
     .trim();
 
 /**
@@ -149,6 +160,7 @@ export class PdfService {
       line(`Invoice Number: ${invoice.invoiceNumber ?? ''}`);
       line(`Customer ID: ${invoice.customer?.id ?? ''}`);
       line(`Invoice Date: ${formatDate(invoice.invoiceDate)}`);
+      line(`Due Date: ${formatDate(invoice.dueDate)}`);
       line(
         `Total Amount: ${invoice.totalAmount ?? 0} ${invoice.currencyCode ?? ''}`,
       );
@@ -160,6 +172,16 @@ export class PdfService {
         line(
           `Item: ${it.product?.name ?? ''}, Quantity: ${it.quantity}, Price: ${it.product?.unitPrice ?? ''}`,
         );
+      }
+      for (const [title, body] of [
+        ['Notes', invoice.notes],
+        ['Additional Information', invoice.additionalInfo],
+      ] as const) {
+        const text = safeBlock(body);
+        if (!text) continue;
+        doc.moveDown();
+        line(`${title}:`);
+        doc.text(text, { width: CONTENT_W });
       }
     });
   }
@@ -292,8 +314,31 @@ export class PdfService {
       true,
     );
 
+    // --- notes / additional information ---
+    y += 6;
+    for (const [title, body] of [
+      ['NOTES', inv.notes],
+      ['ADDITIONAL INFORMATION', inv.additionalInfo],
+    ] as const) {
+      const text = safeBlock(body);
+      if (!text) continue;
+      doc.font(BODY).fontSize(9.5);
+      const blockH = 13 + doc.heightOfString(text, { width: CONTENT_W });
+      // Start the block on a fresh page rather than splitting its heading off;
+      // a block taller than a page still flows on (PDFKit paginates text).
+      if (y + blockH > doc.page.height - MARGIN) {
+        doc.addPage();
+        y = MARGIN;
+      }
+      this.label(doc, title, LEFT, y);
+      y += 13;
+      doc.font(BODY).fontSize(9.5).fillColor(TEXT);
+      doc.text(text, LEFT, y, { width: CONTENT_W });
+      y = doc.y + 14;
+    }
+
     // --- footer ---
-    y += 14;
+    y += 8;
     doc
       .moveTo(LEFT, y)
       .lineTo(RIGHT, y)
@@ -301,9 +346,11 @@ export class PdfService {
       .strokeColor(BORDER)
       .stroke();
     y += 10;
-    const terms = inv.business?.paymentTermsDays
-      ? `Payment is due within ${inv.business.paymentTermsDays} days of the issue date. `
-      : '';
+    const terms = inv.dueDate
+      ? `Payment is due by ${formatDate(inv.dueDate)}. `
+      : inv.business?.paymentTermsDays
+        ? `Payment is due within ${inv.business.paymentTermsDays} days of the issue date. `
+        : '';
     doc.font(BODY).fontSize(9).fillColor(MUTED);
     doc.text(`${terms}Thank you for your business.`, LEFT, y, {
       width: CONTENT_W,

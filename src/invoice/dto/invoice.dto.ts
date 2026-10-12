@@ -2,11 +2,16 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsDateString,
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
+
+/** Upper bound for the free-text notes / additional-info blocks. */
+export const INVOICE_TEXT_MAX = 2000;
 
 export class InvoiceItemProductDto {
   @IsOptional() @IsString() name?: string;
@@ -29,7 +34,14 @@ export class InvoiceItemRequestDto {
 export class InvoiceRequestDto {
   @IsOptional() @IsNumber() businessId?: number;
   @IsOptional() @IsNumber() customerId?: number;
-  @IsOptional() invoiceDate?: unknown; // ignored server-side
+  @IsOptional() @IsDateString() invoiceDate?: string;
+  /** "YYYY-MM-DD"; null clears it on update. Must not precede invoiceDate. */
+  @IsOptional() @IsDateString() dueDate?: string | null;
+  @IsOptional() @IsString() @MaxLength(INVOICE_TEXT_MAX) notes?: string | null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(INVOICE_TEXT_MAX)
+  additionalInfo?: string | null;
   @IsOptional() @IsBoolean() isRecurring?: boolean;
   @IsOptional() @IsBoolean() recurring?: boolean; // Jackson key alias
   @IsOptional() @IsString() frequency?: string;

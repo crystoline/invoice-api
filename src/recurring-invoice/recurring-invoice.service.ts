@@ -5,6 +5,7 @@ import { EmailService } from '../email/email.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { Role } from '../common/enums/role.enum';
+import { carryDueDate } from '../common/util/date.util';
 import {
   CreateRecurringInvoiceDto,
   UpdateRecurringInvoiceDto,
@@ -265,12 +266,16 @@ export class RecurringInvoiceService {
       include: { invoice_items: true },
     });
     if (!template) return null;
+    const now = new Date();
     return this.prisma.invoices.create({
       data: {
         invoice_number: await this.invoiceNumber(),
         business_id: template.business_id,
         customer_id: template.customer_id,
-        invoice_date: new Date(),
+        invoice_date: now,
+        due_date: carryDueDate(template.invoice_date, template.due_date, now),
+        notes: template.notes,
+        additional_info: template.additional_info,
         currency_code: template.currency_code,
         is_recurring: false,
         frequency: template.frequency,
@@ -343,6 +348,8 @@ export class RecurringInvoiceService {
             invoiceNumber: created.invoice_number ?? '',
             invoiceDate: created.invoice_date,
             dueDate: created.due_date ?? null,
+            notes: created.notes,
+            additionalInfo: created.additional_info,
             currencyCode: created.currency_code ?? 'NGN',
             totalAmount: total,
             amountPaid: paid,
