@@ -2,20 +2,25 @@ import { Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
+  MaxLength,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
+/** One bill line. Free text — `productId` is an optional catalogue link. */
 export class BillItemDto {
-  @IsOptional() @IsNumber() price?: number;
-  @IsOptional() @IsNumber() quantity?: number;
-  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsNumber() @Min(0) price?: number;
+  @IsOptional() @IsInt() @Min(0) quantity?: number; // bill_items.quantity is INT
+  @IsOptional() @IsString() @MaxLength(255) description?: string;
   @IsOptional() @IsNumber() productId?: number;
 }
 
 export class BillRequestDto {
+  /** Ignored when `items` has lines — the total is then the sum of the lines. */
   @IsOptional() @IsNumber() totalAmount?: number;
   @IsOptional() @IsString() billNumber?: string;
   @IsOptional() @IsBoolean() isPaid?: boolean;

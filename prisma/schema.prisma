@@ -20,10 +20,10 @@ model bill_items {
   id             BigInt          @id @default(autoincrement())
   price          Decimal?        @db.Decimal(38, 2)
   quantity       Int
-  product_id     BigInt
+  product_id     BigInt?
   description    String?         @db.VarChar(255)
   bill_billitems bill_billitems?
-  products       products        @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKnxfjfage047r297vj65sq8e6h")
+  products       products?       @relation(fields: [product_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKnxfjfage047r297vj65sq8e6h")
 
   @@index([product_id], map: "FKnxfjfage047r297vj65sq8e6h")
 }

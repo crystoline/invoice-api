@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, bill_items, bills } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
@@ -8,12 +8,47 @@ import { AuthUser } from '../common/decorators/current-user.decorator';
 import { BillRequestDto } from './dto/bills.dto';
 
 const billInclude = {
-  bill_billitems: { include: { bill_items: true } },
+  // Join rows are created in entry order, so ordering by them keeps the lines
+  // in the order the user typed them.
+  bill_billitems: {
+    include: { bill_items: true },
+    orderBy: { billitems_id: 'asc' },
+  },
+  vendors: true,
 } satisfies Prisma.billsInclude;
 type BillWithItems = Prisma.billsGetPayload<{ include: typeof billInclude }>;
 
 const num = (d: Prisma.Decimal | null): number | null =>
   d != null ? Number(d) : null;
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** A bill line, normalised from the request. */
+interface BillLine {
+  description: string | null;
+  quantity: number;
+  price: number;
+  product_id: bigint | null;
+}
+
+/** Normalise request lines; rows with neither a description nor a product are dropped. */
+const toLines = (items: BillRequestDto['items']): BillLine[] =>
+  (items ?? [])
+    .map((it) => ({
+      description: it.description?.trim() || null,
+      quantity: it.quantity ?? 1,
+      price: it.price ?? 0,
+      product_id: it.productId != null ? BigInt(it.productId) : null,
+    }))
+    .filter((l) => l.description != null || l.product_id != null);
+
+const linesTotal = (lines: BillLine[]): number =>
+  round2(lines.reduce((sum, l) => sum + l.quantity * l.price, 0));
+
+/** Nested write that creates each line plus its bill_billitems join row. */
+const linesCreate = (lines: BillLine[]) => ({
+  create: lines.map((l) => ({ bill_items: { create: l } })),
+});
 
 @Injectable()
 export class BillsService {
@@ -23,46 +58,41 @@ export class BillsService {
     private readonly storage: StorageService,
   ) {}
 
-  private mapDTO(bill: bills, items: bill_items[]) {
+  private mapDTO(bill: BillWithItems) {
     return {
       id: bill.id,
+      businessId: bill.business_id ?? null,
       totalAmount: num(bill.total_amount),
       billNumber: bill.bill_number,
       isPaid: bill.is_paid,
       billingUserId: bill.billing_user_id ?? null,
       billingVendorId: bill.billing_vendor_id ?? null,
+      vendorName: bill.vendors?.name ?? null,
       receiptUrl: bill.receipt_url,
-      items: items.map((bi) => ({
+      createdAt: bill.created_at,
+      items: bill.bill_billitems.map(({ bill_items: bi }) => ({
         id: bi.id,
-        price: num(bi.price),
-        quantity: bi.quantity,
+        productId: bi.product_id ?? null,
         description: bi.description,
+        quantity: bi.quantity,
+        price: num(bi.price),
+        amount: round2((num(bi.price) ?? 0) * bi.quantity),
       })),
     };
   }
 
-  private itemsOf(bill: BillWithItems): bill_items[] {
-    return bill.bill_billitems.map((bb) => bb.bill_items);
-  }
-
-  private async createItems(
+  /** Delete a bill's lines and their join rows (join rows first — they hold the FKs). */
+  private async deleteItems(
+    tx: Prisma.TransactionClient,
     billId: bigint,
-    items: BillRequestDto['items'],
   ): Promise<void> {
-    for (const it of items ?? []) {
-      if (it.productId == null) continue; // bill_items.product_id is required
-      const bi = await this.prisma.bill_items.create({
-        data: {
-          price: it.price,
-          quantity: it.quantity ?? 0,
-          description: it.description,
-          product_id: BigInt(it.productId),
-        },
-      });
-      await this.prisma.bill_billitems.create({
-        data: { bill_id: billId, billitems_id: bi.id },
-      });
-    }
+    const joins = await tx.bill_billitems.findMany({
+      where: { bill_id: billId },
+    });
+    await tx.bill_billitems.deleteMany({ where: { bill_id: billId } });
+    await tx.bill_items.deleteMany({
+      where: { id: { in: joins.map((j) => j.billitems_id) } },
+    });
   }
 
   // POST /bills/bill — record a bill for a business against a vendor.
@@ -88,24 +118,22 @@ export class BillsService {
         vendorId = vendor.id;
       }
 
+      // With lines, the total is their sum (never trust a client total);
+      // without, fall back to the legacy single-amount bill.
+      const lines = toLines(dto.items);
       const bill = await this.prisma.bills.create({
         data: {
           bill_number: dto.billNumber,
-          total_amount: dto.totalAmount,
+          total_amount: lines.length ? linesTotal(lines) : dto.totalAmount,
           is_paid: dto.isPaid ?? false,
           business_id: business.id,
           billing_vendor_id: vendorId,
           billed_user_id: user.id,
+          bill_billitems: linesCreate(lines),
         },
+        include: billInclude,
       });
-      await this.createItems(bill.id, dto.items);
-      return ok('Bill added Successfully', {
-        id: bill.id,
-        totalAmount: num(bill.total_amount),
-        billNumber: bill.bill_number,
-        isPaid: bill.is_paid,
-        receiptUrl: bill.receipt_url,
-      });
+      return ok('Bill added Successfully', this.mapDTO(bill));
     } catch (e) {
       return fail(`Failed to add Bill: ${(e as Error).message}`);
     }
@@ -115,17 +143,14 @@ export class BillsService {
     try {
       const bill = await this.prisma.bills.findUnique({
         where: { id: billId },
-        include: billInclude,
       });
       if (!bill) throw new Error('Bill not found');
       const updated = await this.prisma.bills.update({
         where: { id: billId },
         data: { is_paid: true },
+        include: billInclude,
       });
-      return ok(
-        'Bill marked as paid',
-        this.mapDTO(updated, this.itemsOf(bill)),
-      );
+      return ok('Bill marked as paid', this.mapDTO(updated));
     } catch (e) {
       return fail(`Bill not marked as paid: ${(e as Error).message}`);
     }
@@ -136,7 +161,7 @@ export class BillsService {
       const bills = await this.prisma.bills.findMany({ include: billInclude });
       return ok(
         'Bills fetched Successfully',
-        bills.map((b) => this.mapDTO(b, this.itemsOf(b))),
+        bills.map((b) => this.mapDTO(b)),
       );
     } catch (e) {
       return fail(`Failed to fetch Bills: ${(e as Error).message}`);
@@ -151,7 +176,7 @@ export class BillsService {
       });
       return ok(
         'Bills fetched successfully',
-        bills.map((b) => this.mapDTO(b, this.itemsOf(b))),
+        bills.map((b) => this.mapDTO(b)),
       );
     } catch (e) {
       return fail(`Failed to fetch bills: ${(e as Error).message}`);
@@ -165,10 +190,7 @@ export class BillsService {
         include: billInclude,
       });
       if (!bill) throw new Error('Bill not found');
-      return ok(
-        'Bill fetched successfully',
-        this.mapDTO(bill, this.itemsOf(bill)),
-      );
+      return ok('Bill fetched successfully', this.mapDTO(bill));
     } catch (e) {
       return fail(`Failed to fetch Bill: ${(e as Error).message}`);
     }
@@ -180,16 +202,10 @@ export class BillsService {
         where: { id: billId },
       });
       if (!exists) return fail('Bill not found');
-      const joins = await this.prisma.bill_billitems.findMany({
-        where: { bill_id: billId },
+      await this.prisma.$transaction(async (tx) => {
+        await this.deleteItems(tx, billId);
+        await tx.bills.delete({ where: { id: billId } });
       });
-      await this.prisma.bill_billitems.deleteMany({
-        where: { bill_id: billId },
-      });
-      await this.prisma.bill_items.deleteMany({
-        where: { id: { in: joins.map((j) => j.billitems_id) } },
-      });
-      await this.prisma.bills.delete({ where: { id: billId } });
       return ok('Bill deleted successfully');
     } catch (e) {
       return fail(`Failed to delete bill: ${(e as Error).message}`);
@@ -202,33 +218,24 @@ export class BillsService {
         where: { id: billId },
       });
       if (!existing) throw new Error('Bill not found');
-      await this.prisma.bills.update({
-        where: { id: billId },
-        data: {
-          bill_number: dto.billNumber ?? undefined,
-          total_amount: dto.totalAmount ?? undefined,
-        },
+      // `items` present = replace every line (and re-derive the total);
+      // absent = leave the lines alone.
+      const lines = dto.items ? toLines(dto.items) : null;
+      const updated = await this.prisma.$transaction(async (tx) => {
+        if (lines) await this.deleteItems(tx, billId);
+        return tx.bills.update({
+          where: { id: billId },
+          data: {
+            bill_number: dto.billNumber ?? undefined,
+            total_amount: lines?.length
+              ? linesTotal(lines)
+              : (dto.totalAmount ?? undefined),
+            ...(lines ? { bill_billitems: linesCreate(lines) } : {}),
+          },
+          include: billInclude,
+        });
       });
-      if (dto.items) {
-        const joins = await this.prisma.bill_billitems.findMany({
-          where: { bill_id: billId },
-        });
-        await this.prisma.bill_billitems.deleteMany({
-          where: { bill_id: billId },
-        });
-        await this.prisma.bill_items.deleteMany({
-          where: { id: { in: joins.map((j) => j.billitems_id) } },
-        });
-        await this.createItems(billId, dto.items);
-      }
-      const reloaded = await this.prisma.bills.findUnique({
-        where: { id: billId },
-        include: billInclude,
-      });
-      return ok(
-        'Bill updated successfully',
-        this.mapDTO(reloaded!, this.itemsOf(reloaded!)),
-      );
+      return ok('Bill updated successfully', this.mapDTO(updated));
     } catch (e) {
       return fail(`Failed to update bill: ${(e as Error).message}`);
     }
@@ -241,7 +248,6 @@ export class BillsService {
     try {
       const bill = await this.prisma.bills.findUnique({
         where: { id: billId },
-        include: billInclude,
       });
       if (!bill) throw new Error('Bill not found');
       const relativePath = await this.storage.storeFile(file, 'receipts');
@@ -251,11 +257,9 @@ export class BillsService {
       const updated = await this.prisma.bills.update({
         where: { id: billId },
         data: { receipt_url: receiptUrl },
+        include: billInclude,
       });
-      return ok(
-        'Receipt uploaded successfully',
-        this.mapDTO(updated, this.itemsOf(bill)),
-      );
+      return ok('Receipt uploaded successfully', this.mapDTO(updated));
     } catch (e) {
       return fail(`Failed to upload receipt: ${(e as Error).message}`);
     }
