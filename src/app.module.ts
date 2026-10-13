@@ -1,4 +1,5 @@
-import { join } from 'path';
+import type { ServerResponse } from 'http';
+import { resolve } from 'path';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
@@ -45,10 +46,22 @@ import { validateEnv } from './config/env.validation';
     }),
     ScheduleModule.forRoot(), // enables @Cron (recurring-invoice generation)
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 300 }]), // basic rate limiting: 300 req/min/IP
-    // Serve uploaded files publicly at /uploads/** (receipts, etc.).
+    // Only business logos are public (they appear on customer-facing
+    // invoices). Receipts are served by GET /api/bills/bill/:id/receipt,
+    // which checks the caller's access to the bill's business.
     ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), process.env.UPLOAD_DIR ?? 'uploads'),
-      serveRoot: '/uploads',
+      // resolve(), not join(): UPLOAD_DIR may be absolute (must match StorageService).
+      rootPath: resolve(
+        process.cwd(),
+        process.env.UPLOAD_DIR ?? 'uploads',
+        'logos',
+      ),
+      serveRoot: '/uploads/logos',
+      serveStaticOptions: {
+        setHeaders: (res: ServerResponse) => {
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+        },
+      },
     }),
     PrismaModule,
     AuthzModule,

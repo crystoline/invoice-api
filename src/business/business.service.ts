@@ -7,7 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma, users } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
-import { StorageService } from '../storage/storage.service';
+import { IMAGE_TYPES, StorageService } from '../storage/storage.service';
 import { InvitationService } from './invitation.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { toSpringPage } from '../common/dto/page';
@@ -21,6 +21,13 @@ import {
   toBusinessRole,
 } from '../common/authz/permissions';
 import { BusinessRequestDto, BusinessSettingsDto } from './dto/business.dto';
+
+const ROLE_LABEL: Record<BusinessRole, string> = {
+  [BusinessRole.OWNER]: 'Owner',
+  [BusinessRole.ADMIN]: 'Admin',
+  [BusinessRole.MEMBER]: 'Member',
+  [BusinessRole.VIEWER]: 'Viewer',
+};
 
 // Access to every method here is decided by AuthorizationGuard from the route's
 // @BusinessPermission / @Roles / @Authenticated declaration — the service only
@@ -335,32 +342,50 @@ export class BusinessService {
     }
   }
 
-  // 4.8 — MANAGE_MEMBERS (guard). Invitees join as MEMBER.
+  // 4.8 — MANAGE_MEMBERS (guard). The invitation carries the role granted on joining.
   async sendInvitation(
     businessId: bigint,
     email: string,
-    user: AuthUser | null,
+    role: string | undefined,
+    user: AuthUser,
   ): Promise<ResponseObject> {
+    const address = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address))
+      return fail('Enter a valid email address.');
+    const grant = String(
+      role ?? BusinessRole.MEMBER,
+    ).toUpperCase() as BusinessRole;
+    if (!ASSIGNABLE_ROLES.includes(grant)) {
+      return fail(
+        `Role must be one of: ${ASSIGNABLE_ROLES.map((r) => r.toLowerCase()).join(', ')}`,
+      );
+    }
     try {
       const biz = await this.prisma.businesses.findUnique({
         where: { id: businessId },
       });
       if (!biz) return fail('Business not found.');
-      const code = this.invitations.generateAndStore(businessId);
-      const base =
-        this.config.get<string>('APP_BASE_URL') ?? 'http://localhost:8080';
-      const invitationUrl = `${base}/api/businesses/join-business/${businessId}/${code}`; // fixed segment
-      const inviter = user
-        ? await this.prisma.users.findUnique({ where: { id: user.id } })
-        : null;
+      const code = await this.invitations.create(
+        businessId,
+        address,
+        grant,
+        user.id,
+      );
+      // The link opens the web app's join page (it signs the user in first if needed).
+      const frontend =
+        this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
+      const invitationUrl = `${frontend.replace(/\/+$/, '')}/api/join-business/${businessId}/${code}`;
+      const inviter = await this.prisma.users.findUnique({
+        where: { id: user.id },
+      });
       const inviterName = [inviter?.first_name, inviter?.last_name]
         .filter(Boolean)
         .join(' ');
       await this.email.sendBusinessInvitationEmail(
-        email,
+        address,
         biz.business_name ?? 'a business',
-        code,
         invitationUrl,
+        ROLE_LABEL[grant],
         inviterName || undefined,
       );
       return ok('Invitation email sent successfully.');
@@ -369,33 +394,75 @@ export class BusinessService {
     }
   }
 
-  // 4.9
+  // 4.9 — the single-use invitation code is the credential; joins the caller.
   async joinBusiness(
     businessId: bigint,
     code: string,
-    user: AuthUser | null,
+    user: AuthUser,
   ): Promise<ResponseObject> {
     try {
-      if (!user) return fail('Sign up to join business');
       const biz = await this.prisma.businesses.findUnique({
         where: { id: businessId },
       });
       if (!biz) return fail('Business not found.');
-      const result = this.invitations.validate(businessId, code);
-      if (result === 'missing')
-        return fail('Invalid or expired invitation code.');
-      if (result === 'expired') return fail('Invitation code has expired.');
-      await this.prisma.business_members.upsert({
+      if (biz.owner_id === user.id)
+        return fail('You already own this business.');
+      const result = await this.invitations.redeem(businessId, code, user.id);
+      if (result.status !== 'ok') {
+        return fail(
+          {
+            missing: 'Invalid or expired invitation code.',
+            expired: 'Invitation code has expired.',
+            used: 'This invitation has already been used.',
+          }[result.status],
+        );
+      }
+      // Already a member? Keep their current role rather than silently changing it.
+      const member = await this.prisma.business_members.upsert({
         where: {
           business_id_user_id: { business_id: businessId, user_id: user.id },
         },
-        create: { business_id: businessId, user_id: user.id },
+        create: {
+          business_id: businessId,
+          user_id: user.id,
+          role: result.role,
+        },
         update: {},
       });
-      return ok(`Successfully joined business: ${biz.business_name}`);
+      return ok(`Successfully joined business: ${biz.business_name}`, {
+        businessId,
+        role: toBusinessRole(member.role),
+      });
     } catch (e) {
       return fail(`Error Joining Business: ${(e as Error).message}`);
     }
+  }
+
+  /** Pending invitations — MANAGE_MEMBERS (guard). */
+  async listInvitations(businessId: bigint): Promise<ResponseObject> {
+    const pending = await this.invitations.listPending(businessId);
+    const now = Date.now();
+    return ok(
+      'Invitations fetched successfully',
+      pending.map((i) => ({
+        id: i.id,
+        email: i.email,
+        role: toBusinessRole(i.role),
+        expiresAt: i.expires_at,
+        expired: i.expires_at.getTime() < now,
+        createdAt: i.created_at,
+      })),
+    );
+  }
+
+  /** Revoke a pending invitation — MANAGE_MEMBERS (guard). */
+  async revokeInvitation(
+    businessId: bigint,
+    invitationId: bigint,
+  ): Promise<ResponseObject> {
+    return (await this.invitations.revoke(businessId, invitationId))
+      ? ok('Invitation revoked')
+      : fail('Invitation not found or already accepted');
   }
 
   // 4.10 — destructive; hardened to SUPER_ADMIN at controller
@@ -615,7 +682,7 @@ export class BusinessService {
     });
     if (!biz) return fail('Business not found');
     try {
-      const rel = await this.storage.storeFile(file, 'logos');
+      const rel = await this.storage.storeFile(file, 'logos', IMAGE_TYPES);
       const base =
         this.config.get<string>('APP_BASE_URL') ?? 'http://localhost:8080';
       const url = `${base}/uploads/${rel}`;

@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { StorageService } from '../storage/storage.service';
+import { RECEIPT_TYPES, StorageService } from '../storage/storage.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { BillRequestDto } from './dto/bills.dto';
@@ -68,7 +68,11 @@ export class BillsService {
       billingUserId: bill.billing_user_id ?? null,
       billingVendorId: bill.billing_vendor_id ?? null,
       vendorName: bill.vendors?.name ?? null,
-      receiptUrl: bill.receipt_url,
+      // The stored file isn't public; this authorized route serves it.
+      receiptUrl: bill.receipt_url
+        ? `${this.apiBase()}/api/bills/bill/${bill.id}/receipt`
+        : null,
+      hasReceipt: !!bill.receipt_url,
       createdAt: bill.created_at,
       items: bill.bill_billitems.map(({ bill_items: bi }) => ({
         id: bi.id,
@@ -260,6 +264,31 @@ export class BillsService {
     }
   }
 
+  private apiBase(): string {
+    return (
+      this.config.get<string>('APP_BASE_URL') ?? 'http://localhost:8080'
+    ).replace(/\/+$/, '');
+  }
+
+  /**
+   * Absolute path of a bill's receipt file. `receipt_url` holds either a
+   * relative path ("receipts/<uuid>.pdf") or, for older rows, the full
+   * former public URL (".../uploads/receipts/<uuid>.pdf").
+   */
+  async getReceiptFile(billId: bigint): Promise<string> {
+    const bill = await this.prisma.bills.findUnique({
+      where: { id: billId },
+      select: { receipt_url: true },
+    });
+    if (!bill?.receipt_url) throw new NotFoundException('No receipt uploaded');
+    const stored = bill.receipt_url;
+    const marker = '/uploads/';
+    const relative = stored.includes(marker)
+      ? stored.slice(stored.indexOf(marker) + marker.length)
+      : stored;
+    return this.storage.resolveStored(relative, 'receipts');
+  }
+
   async uploadReceipt(
     billId: bigint,
     file: Express.Multer.File,
@@ -269,13 +298,14 @@ export class BillsService {
         where: { id: billId },
       });
       if (!bill) throw new Error('Bill not found');
-      const relativePath = await this.storage.storeFile(file, 'receipts');
-      const baseUrl =
-        this.config.get<string>('APP_BASE_URL') ?? 'http://localhost:8080';
-      const receiptUrl = `${baseUrl}/uploads/${relativePath}`;
+      const relativePath = await this.storage.storeFile(
+        file,
+        'receipts',
+        RECEIPT_TYPES,
+      );
       const updated = await this.prisma.bills.update({
         where: { id: billId },
-        data: { receipt_url: receiptUrl },
+        data: { receipt_url: relativePath },
         include: billInclude,
       });
       return ok('Receipt uploaded successfully', this.mapDTO(updated));

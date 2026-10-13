@@ -1,36 +1,83 @@
 import { Injectable } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { randomBytes } from 'crypto';
+import { PrismaService } from '../prisma/prisma.service';
+import { BusinessRole, toBusinessRole } from '../common/authz/permissions';
+
+/** How long an emailed invitation stays valid. */
+export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+export type RedeemResult =
+  | { status: 'ok'; role: BusinessRole }
+  | { status: 'missing' | 'expired' | 'used' };
 
 /**
- * In-memory invitation store — faithful to the legacy InvitationService
- * (ConcurrentHashMap). Codes expire after 1 hour.
- *
- * LIMITATION (carried from legacy): not persisted, so codes are lost on restart
- * and not shared across instances. A persisted `invitations` table is the
- * recommended follow-up (needs a schema migration). See migration doc.
+ * Invitations to join a business, persisted in `business_invitations`
+ * (the legacy store was an in-memory map: lost on restart and not shared
+ * across instances). Codes are single-use, random, and carry the role the
+ * invitee gets on joining.
  */
 @Injectable()
 export class InvitationService {
-  private readonly store = new Map<string, Map<string, number>>(); // businessId -> (code -> expiryEpochMs)
+  constructor(private readonly prisma: PrismaService) {}
 
-  generateAndStore(businessId: bigint): string {
-    const code = 'netron' + randomUUID().replace(/-/g, '').slice(0, 8);
-    const key = businessId.toString();
-    if (!this.store.has(key)) this.store.set(key, new Map());
-    this.store.get(key)!.set(code, Date.now() + 60 * 60 * 1000);
+  async create(
+    businessId: bigint,
+    email: string,
+    role: BusinessRole,
+    invitedBy: bigint,
+  ): Promise<string> {
+    const code = randomBytes(24).toString('base64url');
+    await this.prisma.business_invitations.create({
+      data: {
+        business_id: businessId,
+        email,
+        role,
+        code,
+        invited_by: invitedBy,
+        expires_at: new Date(Date.now() + INVITATION_TTL_MS),
+      },
+    });
     return code;
   }
 
-  /** Returns 'ok' | 'missing' | 'expired'. Consumes the code on success/expiry. */
-  validate(businessId: bigint, code: string): 'ok' | 'missing' | 'expired' {
-    const codes = this.store.get(businessId.toString());
-    const expiry = codes?.get(code);
-    if (!codes || expiry === undefined) return 'missing';
-    if (Date.now() > expiry) {
-      codes.delete(code);
-      return 'expired';
-    }
-    codes.delete(code);
-    return 'ok';
+  /** Consume a code for `userId`. Atomic: a code can only be accepted once. */
+  async redeem(
+    businessId: bigint,
+    code: string,
+    userId: bigint,
+  ): Promise<RedeemResult> {
+    const now = new Date();
+    const claimed = await this.prisma.business_invitations.updateMany({
+      where: {
+        business_id: businessId,
+        code,
+        accepted_at: null,
+        expires_at: { gt: now },
+      },
+      data: { accepted_at: now, accepted_by: userId },
+    });
+    const invite = await this.prisma.business_invitations.findFirst({
+      where: { business_id: businessId, code },
+    });
+    if (!invite) return { status: 'missing' };
+    if (claimed.count === 1)
+      return { status: 'ok', role: toBusinessRole(invite.role) };
+    return { status: invite.accepted_at ? 'used' : 'expired' };
+  }
+
+  /** Invitations not yet accepted (expired ones included, flagged by date). */
+  listPending(businessId: bigint) {
+    return this.prisma.business_invitations.findMany({
+      where: { business_id: businessId, accepted_at: null },
+      orderBy: { created_at: 'desc' },
+    });
+  }
+
+  /** Revoke a pending invitation. Returns false if there was none to revoke. */
+  async revoke(businessId: bigint, invitationId: bigint): Promise<boolean> {
+    const { count } = await this.prisma.business_invitations.deleteMany({
+      where: { id: invitationId, business_id: businessId, accepted_at: null },
+    });
+    return count === 1;
   }
 }

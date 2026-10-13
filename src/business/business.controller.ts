@@ -158,11 +158,30 @@ export class BusinessController {
     return this.business.sendInvitation(
       BigInt(businessId),
       dto.email ?? '',
+      dto.role,
       user,
     );
   }
 
-  // Gated by the invitation code itself; joins the caller.
+  @Get(':businessId/invitations')
+  @BusinessPermission(Permission.MANAGE_MEMBERS, { param: 'businessId' })
+  invitations(@Param('businessId') businessId: string) {
+    return this.business.listInvitations(BigInt(businessId));
+  }
+
+  @Delete(':businessId/invitations/:invitationId')
+  @BusinessPermission(Permission.MANAGE_MEMBERS, { param: 'businessId' })
+  revokeInvitation(
+    @Param('businessId') businessId: string,
+    @Param('invitationId') invitationId: string,
+  ) {
+    return this.business.revokeInvitation(
+      BigInt(businessId),
+      BigInt(invitationId),
+    );
+  }
+
+  // Gated by the single-use invitation code itself; joins the caller.
   @Get('join-business/:businessId/:invitationCode')
   @Authenticated()
   join(

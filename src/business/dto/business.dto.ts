@@ -28,6 +28,8 @@ export class BusinessSettingsDto {
 
 export class InviteDto {
   @IsOptional() @IsString() email?: string;
+  /** ADMIN | MEMBER | VIEWER (case-insensitive); defaults to MEMBER. */
+  @IsOptional() @IsString() role?: string;
 }
 
 export class MemberRoleDto {

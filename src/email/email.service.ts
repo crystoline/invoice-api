@@ -218,32 +218,33 @@ export class EmailService implements OnModuleInit {
     });
   }
 
-  /** Invitation to join a business workspace. `joinUrl` is supplied by the caller. */
+  /**
+   * Invitation to join a business workspace. `joinUrl` (supplied by the
+   * caller) carries the single-use code; `roleLabel` is what they join as.
+   */
   async sendBusinessInvitationEmail(
     to: string,
     businessName: string,
-    code: string,
     joinUrl: string,
+    roleLabel: string,
     inviterName?: string,
   ): Promise<void> {
     const by = inviterName ? ` by ${esc(inviterName)}` : '';
     const html = this.layout({
       title: `You have been invited to join ${esc(businessName)}`,
-      preheader: `Join ${businessName} on ${this.appName}.`,
+      preheader: `Join ${businessName} on ${this.appName} as ${roleLabel}.`,
       bodyHtml: `
         <p style="margin:0 0 14px">Hi there,</p>
-        <p style="margin:0 0 14px">You have been invited${by} to join <strong>${esc(businessName)}</strong> on ${esc(this.appName)}.</p>
-        <p style="margin:0 0 6px;color:${MUTED};font-size:13px">Your invitation code</p>
-        <p style="margin:0 0 4px;font-size:22px;font-weight:700;letter-spacing:3px;font-family:monospace;color:${TEXT}">${esc(code)}</p>`,
+        <p style="margin:0 0 14px">You have been invited${by} to join <strong>${esc(businessName)}</strong> on ${esc(this.appName)} as <strong>${esc(roleLabel)}</strong>.</p>`,
       cta: { label: 'Accept invitation', url: joinUrl },
-      note: 'If you were not expecting this invitation, you can ignore this email.',
+      note: 'This invitation works once and expires in 7 days. If you were not expecting it, you can ignore this email.',
     });
     await this.sendMail(
       to,
       `You have been invited to join ${businessName}`,
       html,
       {
-        text: `You have been invited${inviterName ? ` by ${inviterName}` : ''} to join ${businessName} on ${this.appName}.\n\nInvitation code: ${code}\n\nAccept here: ${joinUrl}`,
+        text: `You have been invited${inviterName ? ` by ${inviterName}` : ''} to join ${businessName} on ${this.appName} as ${roleLabel}.\n\nAccept here: ${joinUrl}\n\nThis invitation works once and expires in 7 days.`,
       },
     );
   }

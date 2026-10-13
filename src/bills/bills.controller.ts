@@ -6,10 +6,13 @@ import {
   Param,
   Post,
   Put,
+  Res,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
+import { extname } from 'path';
 import { BillsService } from './bills.service';
 import { BillRequestDto } from './dto/bills.dto';
 import {
@@ -36,6 +39,18 @@ export class BillsController {
   @Post('bill/mark-as-paid/:billId')
   markPaid(@Param('billId') billId: string) {
     return this.bills.markAsPaid(BigInt(billId));
+  }
+
+  @BusinessPermission(Permission.VIEW, { resource: 'bill', idParam: 'billId' })
+  @Get('bill/:billId/receipt')
+  async receipt(@Param('billId') billId: string, @Res() res: Response) {
+    const path = await this.bills.getReceiptFile(BigInt(billId));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="receipt-${billId}${extname(path)}"`,
+    );
+    res.sendFile(path);
   }
 
   @BusinessPermission(Permission.WRITE, { resource: 'bill', idParam: 'billId' })
