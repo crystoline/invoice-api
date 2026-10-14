@@ -129,7 +129,9 @@ so do steps 1–3 **before** pushing.
      `customer.subscription.updated` and `customer.subscription.deleted`. Copy its signing secret into
      `STRIPE_WEBHOOK_SECRET`.
 
-4. **Ship the API and the frontend together**: push both repos to `master`.
+4. **Ship the API and the frontend together**: push both repos to `master`. `npm run build` runs
+   `prisma generate` first. Render reuses `node_modules` between builds, and without that step it compiles
+   against the previous schema's Prisma client ("Property 'x' does not exist on type …").
 
 5. **Smoke test.** Make one real payment per gateway: a Nigerian account through Paystack and a non-Nigerian
    one through Stripe. Check that **Settings → Subscription** shows the plan as active and the payment under
