@@ -8,6 +8,7 @@ import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { toSpringPage } from '../common/dto/page';
 import { formatDateAdded } from '../common/util/date.util';
+import { jurisdictionOf } from '../subscription/jurisdiction';
 import { generateVerificationToken } from '../common/util/token.util';
 import {
   UpdateUserDto,
@@ -38,6 +39,8 @@ export class UserService {
       status: u.status,
       verified: u.verified,
       username: u.username,
+      country: u.country,
+      jurisdiction: jurisdictionOf(u.country),
     };
   }
 
@@ -184,10 +187,16 @@ export class UserService {
     const user = await this.prisma.users.findUnique({
       where: { id: currentUser.id },
     });
-    return ok(
-      'User fetched successfully.',
-      user ? this.mapUserEntity(user) : null,
-    );
+    if (!user) return ok('User fetched successfully.', null);
+    // The billing country can change freely until a gateway has charged them.
+    const paid = await this.prisma.subscriptions.findFirst({
+      where: { user_id: user.id, payment_gateway: { not: null } },
+      select: { id: true },
+    });
+    return ok('User fetched successfully.', {
+      ...this.mapUserEntity(user),
+      canChangeCountry: !paid,
+    });
   }
 
   // #14

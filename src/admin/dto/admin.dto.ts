@@ -41,9 +41,16 @@ export class BusinessStatusDto {
 }
 
 export class PlanRequestDto {
+  /** NG (naira, Paystack) | OTHER (USD, Stripe). Required on create; fixes the currency. */
+  @IsOptional() @IsString() jurisdiction?: string;
+  @IsOptional() @IsNumber() priceMonthly?: number;
+  @IsOptional() @IsNumber() priceYearly?: number;
+  /** Optional: links equivalent plans across jurisdictions (e.g. "basic"). */
+  @IsOptional() @IsString() tier?: string;
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() displayName?: string;
   @IsOptional() @IsString() description?: string;
+  // Legacy dual-currency prices — ignored (a plan has one currency now).
   @IsOptional() @IsNumber() priceNgnMonthly?: number;
   @IsOptional() @IsNumber() priceNgnYearly?: number;
   @IsOptional() @IsNumber() priceUsdMonthly?: number;
@@ -57,6 +64,11 @@ export class PlanRequestDto {
   @IsOptional() @IsBoolean() allowApiAccess?: boolean;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsNumber() durationInDays?: number;
+}
+
+export class UserCountryDto {
+  /** ISO 3166-1 alpha-2, e.g. "NG". */
+  @IsOptional() @IsString() country?: string;
 }
 
 export class PlanActiveDto {

@@ -230,7 +230,15 @@ model plans {
   allow_custom_templates Boolean?        @default(false)
   allow_api_access       Boolean?        @default(false)
   is_active              Boolean?        @default(true)
+  /// NG | OTHER — who can buy this plan. Its currency follows: NG → NGN, OTHER → USD.
+  jurisdiction           String          @default("NG") @db.VarChar(8)
+  currency               String          @default("NGN") @db.VarChar(3)
+  price_monthly          Float?
+  price_yearly           Float?
+  /// Optional: plans sharing a tier across jurisdictions are equivalents (a trial follows the user if their country changes).
+  tier                   String?         @db.VarChar(32)
   subscriptions          subscriptions[]
+  gateway_plans          gateway_plans[]
 }
 
 model products {
@@ -291,6 +299,10 @@ model subscriptions {
   auto_renew              Boolean?  @default(true)
   last_payment_date       DateTime? @db.DateTime(6)
   next_payment_date       DateTime? @db.DateTime(6)
+  billing_interval        String?   @db.VarChar(8) // MONTHLY | YEARLY
+  gateway_customer_id     String?   @db.VarChar(255)
+  /// Paystack email_token — needed to disable a Paystack subscription.
+  gateway_token           String?   @db.VarChar(255)
   plan_id      BigInt
   user_id      BigInt
   plans        plans    @relation(fields: [plan_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "FKb1uf5qnxi6uj95se8ykydntl1")
@@ -328,6 +340,8 @@ model users {
   totp_secret                                                                   String?                 @db.VarChar(255)
   twofa_enabled                                                                 Boolean?                @default(false)
   twofa_confirmed_at                                                            DateTime?               @db.DateTime(6)
+  /// ISO 3166-1 alpha-2 billing country. NG → naira plans via Paystack; anything else → USD plans via Stripe.
+  country                                                                       String?                 @db.VarChar(2)
   user_recovery_codes                                                           user_recovery_codes[]
   bills_bills_billing_user_idTousers                                            bills[]                 @relation("bills_billing_user_idTousers")
   bills_bills_billed_user_idTousers                                             bills[]                 @relation("bills_billed_user_idTousers")
@@ -384,6 +398,8 @@ model vendors {
 model payments {
   id              BigInt    @id @default(autoincrement())
   invoice_id      BigInt?
+  /// Set for subscription charges (invoice_id is then null).
+  subscription_id BigInt?
   business_id     BigInt?
   amount          Decimal?  @db.Decimal(38, 2)
   currency        String?   @db.VarChar(8)
@@ -395,6 +411,7 @@ model payments {
 
   @@index([invoice_id])
   @@index([business_id])
+  @@index([subscription_id])
 }
 
 model tax_rates {
@@ -467,4 +484,22 @@ model business_invitations {
   businesses  businesses @relation(fields: [business_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([business_id])
+}
+
+/// A plan price mirrored on a payment gateway for recurring billing (Paystack
+/// plans need one per amount + interval). A price change creates a new row;
+/// existing subscribers keep the price they signed up at.
+model gateway_plans {
+  id                BigInt    @id @default(autoincrement())
+  plan_id           BigInt
+  gateway           String    @db.VarChar(16) // PAYSTACK
+  billing_interval  String    @db.VarChar(8) // MONTHLY | YEARLY
+  amount_minor      Int
+  currency          String    @db.VarChar(3)
+  gateway_plan_code String    @db.VarChar(64)
+  created_at        DateTime? @default(now())
+  plans             plans     @relation(fields: [plan_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([plan_id, gateway, billing_interval, amount_minor, currency], map: "gateway_plans_price_key")
+  @@index([gateway_plan_code], map: "gateway_plans_code_idx")
 }

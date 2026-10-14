@@ -87,6 +87,46 @@ npm run start:dev               # env is read at boot — a restart is mandatory
 
 With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
 
+## Production deploy checklist (Render)
+
+Go through this whenever a release adds a migration or touches billing. Render auto-deploys `master`,
+so do steps 1–3 **before** pushing.
+
+1. **Migrate the live database first.** The new code expects the new columns at boot, so run this from a
+   machine whose `.env` `DATABASE_URL` points at production:
+
+   ```bash
+   npm run prisma:migrate:status   # lists the pending migrations
+   npm run prisma:migrate:deploy   # applies them
+   ```
+
+   After `20261014000000_billing_jurisdiction`, open **Admin → Plans**. Existing plans became the Nigeria
+   (NGN) plans, and each one was copied as "<name> (USD)" for everyone else using the old USD prices.
+   Check those prices and names before customers see them.
+
+2. **Environment variables** (Render → service → Environment):
+
+   | Variable                | Value                                                                    |
+   | ----------------------- | ------------------------------------------------------------------------ |
+   | `PAYSTACK_SECRET_KEY`   | Paystack secret key (`sk_live_…`). Nigeria: NGN subscriptions.            |
+   | `STRIPE_SECRET_KEY`     | Stripe secret key (`sk_live_…`). Everyone else: USD subscriptions.        |
+   | `STRIPE_WEBHOOK_SECRET` | Signing secret (`whsec_…`) of the Stripe webhook endpoint in step 3.      |
+   | `FRONTEND_URL`          | `https://invoice.crysto.name.ng`. Checkout sends customers back here.     |
+
+3. **Webhooks.** Subscriptions only activate and renew through these.
+   - **Paystack** → Settings → API Keys & Webhooks → Webhook URL:
+     `https://<api-host>/api/webhooks/paystack` (signed with the secret key; nothing else to copy).
+   - **Stripe** → Developers → Webhooks → Add endpoint `https://<api-host>/api/webhooks/stripe` with the
+     events `checkout.session.completed`, `invoice.paid`, `invoice.payment_failed`,
+     `customer.subscription.updated` and `customer.subscription.deleted`. Copy its signing secret into
+     `STRIPE_WEBHOOK_SECRET`.
+
+4. **Ship the API and the frontend together**: push both repos to `master`.
+
+5. **Smoke test.** Make one real payment per gateway: a Nigerian account through Paystack and a non-Nigerian
+   one through Stripe. Check that **Settings → Subscription** shows the plan as active and the payment under
+   Billing history, then cancel.
+
 ## Resources
 
 Check out a few resources that may come in handy when working with NestJS:

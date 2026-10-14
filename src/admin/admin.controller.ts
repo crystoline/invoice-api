@@ -19,6 +19,7 @@ import {
   PlanActiveDto,
   PlanRequestDto,
   UpdateUserRoleDto,
+  UserCountryDto,
   UpdateUserStatusDto,
 } from './dto/admin.dto';
 
@@ -84,6 +85,11 @@ export class AdminController {
   @Post('users/:id/verify')
   verifyUser(@Param('id') id: string) {
     return this.admin.verifyUser(BigInt(id));
+  }
+
+  @Put('users/:id/country')
+  setUserCountry(@Param('id') id: string, @Body() dto: UserCountryDto) {
+    return this.admin.setUserCountry(BigInt(id), dto);
   }
 
   @Put('users/:id/role')

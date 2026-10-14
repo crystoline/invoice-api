@@ -34,6 +34,63 @@ export class StripeService {
     });
   }
 
+  /**
+   * Hosted Checkout for a recurring subscription. The price is given inline,
+   * so plans don't have to be mirrored in Stripe; Stripe bills each period
+   * automatically. `metadata` is copied onto the Stripe subscription too.
+   */
+  async createSubscriptionCheckout(params: {
+    email: string;
+    productName: string;
+    amountMinor: number;
+    currency: string;
+    interval: 'month' | 'year';
+    successUrl: string;
+    cancelUrl: string;
+    metadata: Record<string, string>;
+  }): Promise<string> {
+    if (!this.stripe) throw new Error('Stripe is not configured');
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer_email: params.email,
+      client_reference_id: params.metadata.userId,
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: params.currency.toLowerCase(),
+            unit_amount: params.amountMinor,
+            recurring: { interval: params.interval },
+            product_data: { name: params.productName },
+          },
+        },
+      ],
+      subscription_data: { metadata: params.metadata },
+      metadata: params.metadata,
+      success_url: params.successUrl,
+      cancel_url: params.cancelUrl,
+    });
+    if (!session.url) throw new Error('Stripe returned no checkout URL');
+    return session.url;
+  }
+
+  async retrieveSubscription(id: string): Promise<Stripe.Subscription> {
+    if (!this.stripe) throw new Error('Stripe is not configured');
+    return this.stripe.subscriptions.retrieve(id);
+  }
+
+  /** Stop renewal (access runs to the end of the paid period) or end it now. */
+  async cancelSubscription(id: string, atPeriodEnd: boolean): Promise<void> {
+    if (!this.stripe) throw new Error('Stripe is not configured');
+    if (atPeriodEnd) {
+      await this.stripe.subscriptions.update(id, {
+        cancel_at_period_end: true,
+      });
+    } else {
+      await this.stripe.subscriptions.cancel(id);
+    }
+  }
+
   constructEvent(rawBody: Buffer, signature: string): Stripe.Event | null {
     if (!this.stripe || !this.webhookSecret) return null;
     return this.stripe.webhooks.constructEvent(

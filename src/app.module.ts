@@ -32,6 +32,7 @@ import { NotificationModule } from './notification/notification.module';
 import { TaxModule } from './tax/tax.module';
 import { CustomerPortalModule } from './customer-portal/customer-portal.module';
 import { AdminModule } from './admin/admin.module';
+import { WebhookModule } from './webhook/webhook.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AuthzModule } from './common/authz/authz.module';
@@ -88,6 +89,7 @@ import { validateEnv } from './config/env.validation';
     TaxModule,
     CustomerPortalModule,
     AdminModule,
+    WebhookModule,
   ],
   controllers: [AppController],
   providers: [

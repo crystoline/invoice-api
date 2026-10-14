@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { Prisma } from '@prisma/client';
+import type Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from './stripe.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
@@ -153,23 +154,26 @@ export class PaymentService {
     }
   }
 
-  // POST /api/webhooks/paystack — verify HMAC-SHA512 of the raw body.
-  async handlePaystackWebhook(
-    rawBody: Buffer,
-    signature: string,
-  ): Promise<{ received: boolean }> {
+  /** Paystack signs webhooks with HMAC-SHA512 of the raw body (platform secret). */
+  verifyPaystackSignature(rawBody: Buffer, signature: string): boolean {
     const key = this.config.get<string>('PAYSTACK_SECRET_KEY');
-    if (!key) return { received: false };
-    const expected = createHmac('sha512', key).update(rawBody).digest('hex');
-    if (expected !== signature) {
-      this.logger.warn('Paystack webhook signature mismatch');
-      return { received: false };
-    }
+    if (!key || !signature) return false;
+    const expected = Buffer.from(
+      createHmac('sha512', key).update(rawBody).digest('hex'),
+    );
+    const given = Buffer.from(signature);
+    const valid =
+      expected.length === given.length && timingSafeEqual(expected, given);
+    if (!valid) this.logger.warn('Paystack webhook signature mismatch');
+    return valid;
+  }
+
+  /** Invoice payments confirmed by Paystack (subscriptions are handled elsewhere). */
+  async handlePaystackEvent(event: {
+    event?: string;
+    data?: { reference?: string; amount?: number };
+  }): Promise<void> {
     try {
-      const event = JSON.parse(rawBody.toString('utf8')) as {
-        event?: string;
-        data?: { reference?: string; amount?: number };
-      };
       if (event.event === 'charge.success' && event.data?.reference) {
         const payment = await this.prisma.payments.findFirst({
           where: { transaction_ref: event.data.reference },
@@ -186,7 +190,6 @@ export class PaymentService {
     } catch (e) {
       this.logger.error(`Paystack webhook error: ${(e as Error).message}`);
     }
-    return { received: true };
   }
 
   // POST /api/payments/stripe/create-intent
@@ -223,14 +226,23 @@ export class PaymentService {
     }
   }
 
-  // POST /api/webhooks/stripe
-  async handleStripeWebhook(
+  /** A verified Stripe event, or null (bad signature / Stripe not configured). */
+  constructStripeEvent(
     rawBody: Buffer,
     signature: string,
-  ): Promise<{ received: boolean }> {
+  ): Stripe.Event | null {
     try {
-      const event = this.stripe.constructEvent(rawBody, signature);
-      if (event && event.type === 'payment_intent.succeeded') {
+      return this.stripe.constructEvent(rawBody, signature);
+    } catch (e) {
+      this.logger.warn(`Stripe webhook rejected: ${(e as Error).message}`);
+      return null;
+    }
+  }
+
+  /** Invoice payments confirmed by Stripe (subscriptions are handled elsewhere). */
+  async handleStripeEvent(event: Stripe.Event): Promise<void> {
+    try {
+      if (event.type === 'payment_intent.succeeded') {
         const intent = event.data.object as {
           id: string;
           amount: number;
@@ -245,10 +257,8 @@ export class PaymentService {
             intent.id,
           );
       }
-      return { received: true };
     } catch (e) {
       this.logger.error(`Stripe webhook error: ${(e as Error).message}`);
-      return { received: false };
     }
   }
 

@@ -1,4 +1,4 @@
-import { IsNumber, IsOptional } from 'class-validator';
+import { IsNumber, IsOptional, IsString } from 'class-validator';
 
 /**
  * Body for `POST /api/subscription/subscribe`. `planId` is validated as
@@ -13,4 +13,16 @@ export class SubscribeDto {
 /** Body for `POST /api/subscription/change` (upgrade / downgrade). */
 export class ChangePlanDto {
   @IsOptional() @IsNumber() planId?: number;
+}
+
+/** Body for `POST /api/subscription/checkout`. */
+export class CheckoutDto {
+  @IsOptional() @IsNumber() planId?: number;
+  /** MONTHLY | YEARLY (case-insensitive). */
+  @IsOptional() @IsString() interval?: string;
+}
+
+/** Body for `PUT /api/subscription/country` — ISO 3166-1 alpha-2, e.g. "NG". */
+export class CountryDto {
+  @IsOptional() @IsString() country?: string;
 }

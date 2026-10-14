@@ -5,10 +5,18 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { formatDateAdded } from '../common/util/date.util';
 import {
+  BILLING,
+  Jurisdiction,
+  isJurisdiction,
+  jurisdictionOf,
+  normalizeCountry,
+} from '../subscription/jurisdiction';
+import {
   AdminCreateUserDto,
   CategoryRequestDto,
   PlanRequestDto,
   UpdateUserRoleDto,
+  UserCountryDto,
 } from './dto/admin.dto';
 
 // --- shared helpers (mirroring dashboard.service conventions) --------------
@@ -22,6 +30,15 @@ const pad = (x: number): string => String(x).padStart(2, '0');
 const monthKey = (d: Date): string =>
   `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
 const DEFAULT_DURATION_DAYS = 30;
+
+/** Plan price as a monthly amount, by the interval it's billed at. */
+const monthlyValue = (
+  plan: { price_monthly: number | null; price_yearly: number | null },
+  interval: string | null,
+): number =>
+  interval === 'YEARLY'
+    ? (plan.price_yearly ?? 0) / 12
+    : (plan.price_monthly ?? 0);
 
 /** Parse the legacy string `date_added` ("yyyy-MM-dd HH:mm:ss") defensively. */
 const parseDateAdded = (s: string | null | undefined): Date | null => {
@@ -91,7 +108,10 @@ export class AdminService {
           },
         }),
         this.prisma.subscriptions.findMany({
-          where: { status: { in: ['ACTIVE', 'TRIAL'] } },
+          where: {
+            status: { in: ['ACTIVE', 'TRIAL', 'PAST_DUE'] },
+            is_active: true,
+          },
           include: { plans: true },
         }),
         this.prisma.plans.findMany(),
@@ -139,11 +159,17 @@ export class AdminService {
         revenueByMonth.push({ month: k, collected: revByMonth[k] || 0 });
       }
 
-      // mrr = sum of monthly NGN price over ACTIVE/TRIAL subscriptions
-      const mrr = subs.reduce(
-        (s, sub) => s + (sub.plans?.price_ngn_monthly ?? 0),
-        0,
-      );
+      // MRR per currency over paying subscriptions (trials aren't revenue).
+      // `mrr` stays the NGN figure for existing dashboards.
+      const mrrByCurrency: Record<string, number> = { NGN: 0, USD: 0 };
+      for (const sub of subs) {
+        if (!sub.payment_gateway || !sub.plans) continue;
+        const cur = sub.plans.currency;
+        mrrByCurrency[cur] =
+          (mrrByCurrency[cur] ?? 0) +
+          monthlyValue(sub.plans, sub.billing_interval);
+      }
+      const mrr = mrrByCurrency.NGN;
       const activeSubscriptions = subs.filter(
         (s) => s.status === 'ACTIVE',
       ).length;
@@ -177,6 +203,7 @@ export class AdminService {
           outstanding,
           activeSubscriptions,
           mrr,
+          mrrByCurrency,
         },
         usersByMonth,
         revenueByMonth,
@@ -231,6 +258,7 @@ export class AdminService {
         role: primaryRole(u),
         status: !!u.status,
         verified: !!u.verified,
+        country: u.country,
         businessCount: u._count.businesses_businesses_owner_idTousers,
         dateAdded: u.date_added,
       }));
@@ -296,6 +324,25 @@ export class AdminService {
     } catch (e) {
       return fail(`Failed to update user role: ${(e as Error).message}`);
     }
+  }
+
+  // PUT /admin/users/:id/country — billing country. Users can only change
+  // it themselves before their first payment; support can change it any time.
+  // An existing gateway subscription keeps billing in its original currency
+  // until it ends; their next checkout uses the new jurisdiction.
+  async setUserCountry(
+    id: bigint,
+    dto: UserCountryDto,
+  ): Promise<ResponseObject> {
+    const country = normalizeCountry(dto.country);
+    if (!country) return fail('Choose a valid country.');
+    const user = await this.prisma.users.findUnique({ where: { id } });
+    if (!user) return fail('User not found');
+    await this.prisma.users.update({ where: { id }, data: { country } });
+    return ok('Billing country updated', {
+      country,
+      jurisdiction: jurisdictionOf(country),
+    });
   }
 
   // 6. DELETE /admin/users/:id ---------------------------------------------
@@ -564,10 +611,11 @@ export class AdminService {
       name: p.name,
       displayName: p.display_name,
       description: p.description,
-      priceNgnMonthly: num(p.price_ngn_monthly),
-      priceNgnYearly: num(p.price_ngn_yearly),
-      priceUsdMonthly: num(p.price_usd_monthly),
-      priceUsdYearly: num(p.price_usd_yearly),
+      jurisdiction: p.jurisdiction,
+      currency: p.currency,
+      priceMonthly: num(p.price_monthly),
+      priceYearly: num(p.price_yearly),
+      tier: p.tier,
       maxInvoicesPerMonth: p.max_invoices_per_month,
       maxBusinesses: p.max_businesses,
       maxTeamMembers: p.max_team_members,
@@ -581,7 +629,13 @@ export class AdminService {
 
   async listPlans(): Promise<ResponseObject> {
     try {
-      const rows = await this.prisma.plans.findMany({ orderBy: { id: 'asc' } });
+      const rows = await this.prisma.plans.findMany({
+        orderBy: [
+          { jurisdiction: 'asc' },
+          { price_monthly: 'asc' },
+          { id: 'asc' },
+        ],
+      });
       return ok(
         'Plans fetched successfully',
         rows.map((p) => this.mapPlan(p)),
@@ -591,17 +645,21 @@ export class AdminService {
     }
   }
 
-  private toPlanData(dto: PlanRequestDto): Prisma.plansUncheckedCreateInput {
+  private toPlanData(
+    dto: PlanRequestDto,
+    jurisdiction: Jurisdiction,
+  ): Prisma.plansUncheckedCreateInput {
     return {
       name: dto.name ?? '',
       display_name: dto.displayName ?? dto.name,
       description: dto.description,
       duration_in_days: dto.durationInDays ?? DEFAULT_DURATION_DAYS,
-      price: dto.priceNgnMonthly ?? 0,
-      price_ngn_monthly: dto.priceNgnMonthly,
-      price_ngn_yearly: dto.priceNgnYearly,
-      price_usd_monthly: dto.priceUsdMonthly,
-      price_usd_yearly: dto.priceUsdYearly,
+      jurisdiction,
+      currency: BILLING[jurisdiction].currency,
+      price_monthly: dto.priceMonthly ?? 0,
+      price_yearly: dto.priceYearly ?? 0,
+      tier: dto.tier?.trim().toLowerCase() || null,
+      price: dto.priceMonthly ?? 0,
       max_invoices_per_month: dto.maxInvoicesPerMonth ?? null,
       max_businesses: dto.maxBusinesses ?? null,
       max_team_members: dto.maxTeamMembers ?? null,
@@ -621,8 +679,10 @@ export class AdminService {
         where: { name: dto.name },
       });
       if (existing) return fail(`Plan with name ${dto.name} already exists`);
+      if (!isJurisdiction(dto.jurisdiction))
+        return fail('Choose who the plan is for: NG (naira) or OTHER (USD).');
       const created = await this.prisma.plans.create({
-        data: this.toPlanData(dto),
+        data: this.toPlanData(dto, dto.jurisdiction),
       });
       return ok('Plan created successfully', this.mapPlan(created));
     } catch (e) {
@@ -635,19 +695,45 @@ export class AdminService {
     try {
       const plan = await this.prisma.plans.findUnique({ where: { id } });
       if (!plan) return fail('Plan not found');
+      // Moving a plan to another jurisdiction would change its currency under
+      // existing subscribers — only allowed while nobody is on it.
+      let jurisdiction: Jurisdiction | undefined;
+      if (
+        dto.jurisdiction !== undefined &&
+        dto.jurisdiction !== plan.jurisdiction
+      ) {
+        if (!isJurisdiction(dto.jurisdiction))
+          return fail('Jurisdiction must be NG or OTHER.');
+        const used = await this.prisma.subscriptions.count({
+          where: { plan_id: id },
+        });
+        if (used)
+          return fail(
+            "This plan has subscribers, so its jurisdiction can't change. Create a new plan instead.",
+          );
+        jurisdiction = dto.jurisdiction;
+      }
       const data: Prisma.plansUpdateInput = {
+        ...(jurisdiction && {
+          jurisdiction,
+          currency: BILLING[jurisdiction].currency,
+        }),
+        // New checkouts use the new price; existing subscribers keep theirs.
+        price_monthly: dto.priceMonthly ?? undefined,
+        price_yearly: dto.priceYearly ?? undefined,
+        tier:
+          dto.tier === undefined
+            ? undefined
+            : dto.tier.trim().toLowerCase() || null,
         name: dto.name ?? undefined,
         display_name: dto.displayName ?? undefined,
         description: dto.description ?? undefined,
         duration_in_days: dto.durationInDays ?? undefined,
-        price: dto.priceNgnMonthly ?? undefined,
-        price_ngn_monthly: dto.priceNgnMonthly ?? undefined,
-        price_ngn_yearly: dto.priceNgnYearly ?? undefined,
-        price_usd_monthly: dto.priceUsdMonthly ?? undefined,
-        price_usd_yearly: dto.priceUsdYearly ?? undefined,
-        max_invoices_per_month: dto.maxInvoicesPerMonth ?? undefined,
-        max_businesses: dto.maxBusinesses ?? undefined,
-        max_team_members: dto.maxTeamMembers ?? undefined,
+        price: dto.priceMonthly ?? undefined,
+        // null = unlimited, so only `undefined` means "leave as is".
+        max_invoices_per_month: dto.maxInvoicesPerMonth,
+        max_businesses: dto.maxBusinesses,
+        max_team_members: dto.maxTeamMembers,
         allow_payment_collection: dto.allowPaymentCollection ?? undefined,
         allow_recurring_invoices: dto.allowRecurringInvoices ?? undefined,
         allow_custom_templates: dto.allowCustomTemplates ?? undefined,

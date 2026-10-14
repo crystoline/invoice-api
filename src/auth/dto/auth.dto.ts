@@ -19,6 +19,8 @@ export class SignupDto {
   @IsOptional() @IsString() lastName?: string;
   @IsOptional() @IsString() email?: string;
   @IsOptional() @IsString() password?: string;
+  /** Billing country, ISO 3166-1 alpha-2 (e.g. "NG"). Decides naira vs USD plans. */
+  @IsOptional() @IsString() country?: string;
 }
 
 export class LoginDto {

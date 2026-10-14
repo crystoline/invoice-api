@@ -8,6 +8,7 @@ import { EmailService } from '../email/email.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { AuthUser } from '../common/decorators/current-user.decorator';
 import { formatDateAdded } from '../common/util/date.util';
+import { normalizeCountry } from '../subscription/jurisdiction';
 import { generateVerificationToken } from '../common/util/token.util';
 import { formatLastActivity } from './jwt.util';
 import { SignupDto, LoginDto, ChangePasswordEmailDto } from './dto/auth.dto';
@@ -110,6 +111,7 @@ export class AuthService {
         status: true,
         verified: false,
         date_added: formatDateAdded(),
+        country: normalizeCountry(dto.country),
         ...(roleName
           ? {
               user_role: {
