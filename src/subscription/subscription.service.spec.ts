@@ -1,4 +1,5 @@
 import { PrismaService } from '../prisma/prisma.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 import { SubscriptionBillingService } from './subscription-billing.service';
 import { SubscriptionService } from './subscription.service';
 
@@ -6,6 +7,7 @@ const makeService = (prisma: object) =>
   new SubscriptionService(
     prisma as unknown as PrismaService,
     {} as unknown as SubscriptionBillingService,
+    {} as unknown as PlanLimitsService,
   );
 
 describe('SubscriptionService.expireLapsed', () => {

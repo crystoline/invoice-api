@@ -16,6 +16,10 @@ import {
 } from './dto/recurring-invoice.dto';
 import { BusinessPermission } from '../common/authz/authz.decorators';
 import { Permission } from '../common/authz/permissions';
+import {
+  CurrentUser,
+  type AuthUser,
+} from '../common/decorators/current-user.decorator';
 
 /** RecurringInvoiceController — `/api/recurring-invoices`. */
 @Controller('recurring-invoices')
@@ -27,8 +31,11 @@ export class RecurringInvoiceController {
     idBody: 'templateInvoiceId',
   })
   @Post()
-  create(@Body() dto: CreateRecurringInvoiceDto) {
-    return this.service.create(dto);
+  create(
+    @Body() dto: CreateRecurringInvoiceDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.service.create(dto, user);
   }
 
   @BusinessPermission(Permission.VIEW, { param: 'businessId' })
@@ -58,8 +65,8 @@ export class RecurringInvoiceController {
     idParam: 'id',
   })
   @Post(':id/resume')
-  resume(@Param('id') id: string) {
-    return this.service.setActive(BigInt(id), true);
+  resume(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.service.setActive(BigInt(id), true, user);
   }
 
   @BusinessPermission(Permission.VIEW, {

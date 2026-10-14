@@ -2,6 +2,7 @@ import { randomBytes } from 'crypto';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
@@ -11,6 +12,7 @@ export class CustomerPortalService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   /**
@@ -63,6 +65,9 @@ export class CustomerPortalService {
       notes: invoice.notes,
       additionalInfo: invoice.additional_info,
       businessName: invoice.businesses.business_name,
+      // Online payment is a plan feature of the business that sent it.
+      canPay: (await this.limits.canCollectPayments(invoice.business_id))
+        .allowed,
       customerName:
         `${invoice.customers.first_name ?? ''} ${invoice.customers.last_name ?? ''}`.trim(),
       items: invoice.invoice_items.map((it) => ({
@@ -83,9 +88,14 @@ export class CustomerPortalService {
     if (invoiceId == null) return fail('Invalid or expired link');
     const invoice = await this.prisma.invoices.findUnique({
       where: { id: invoiceId },
-      include: { customers: true },
+      include: { customers: true, businesses: true },
     });
     if (!invoice) return fail('Invalid or expired link');
+    if (!(await this.limits.canCollectPayments(invoice.business_id)).allowed) {
+      return fail(
+        `Online payment isn't available for this invoice. Please contact ${invoice.businesses.business_name ?? 'the sender'} to pay.`,
+      );
+    }
 
     const secretKey =
       this.config.get<string>('PAYSTACK_SECRET_KEY') ??

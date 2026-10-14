@@ -91,8 +91,11 @@ export class InvoiceController {
     idParam: 'invoiceId',
   })
   @Post('invoice/duplicate/:invoiceId')
-  duplicate(@Param('invoiceId') invoiceId: string) {
-    return this.invoices.duplicateInvoice(BigInt(invoiceId));
+  duplicate(
+    @Param('invoiceId') invoiceId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.invoices.duplicateInvoice(BigInt(invoiceId), user);
   }
 
   @BusinessPermission(Permission.APPROVE, {

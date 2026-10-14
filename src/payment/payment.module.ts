@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { PlanLimitsModule } from '../plan-limits/plan-limits.module';
 import { PaymentController } from './payment.controller';
 import { PaymentService } from './payment.service';
 import { PaystackService } from './paystack.service';
@@ -7,6 +8,7 @@ import { StripeService } from './stripe.service';
 // Webhooks live in WebhookModule, which routes each event to invoice payments
 // (PaymentService) and subscriptions (SubscriptionBillingService).
 @Module({
+  imports: [PlanLimitsModule],
   controllers: [PaymentController],
   providers: [PaymentService, StripeService, PaystackService],
   exports: [PaymentService, StripeService, PaystackService],

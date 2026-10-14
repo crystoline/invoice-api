@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { PdfService, InvoicePdfModel } from '../pdf/pdf.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { toSpringPage } from '../common/dto/page';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -62,6 +63,7 @@ export class InvoiceService {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly pdf: PdfService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   // Who may call each method is decided by AuthorizationGuard from the route's
@@ -194,6 +196,8 @@ export class InvoiceService {
       include: { customers: true },
     });
     if (!business) throw new Error('Business not found');
+    const quota = await this.limits.canCreateInvoice(business.id, user.id);
+    if (!quota.allowed) return fail(quota.message);
     const customer = await this.prisma.customers.findUnique({
       where: { id: BigInt(dto.customerId ?? 0) },
     });
@@ -572,13 +576,21 @@ export class InvoiceService {
   }
 
   // POST /invoices/invoice/duplicate/:id — WRITE (guard); clone into a new draft.
-  async duplicateInvoice(invoiceId: bigint): Promise<ResponseObject> {
+  async duplicateInvoice(
+    invoiceId: bigint,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       const src = await this.prisma.invoices.findUnique({
         where: { id: invoiceId },
         include: { invoice_items: true },
       });
       if (!src) return fail('Invoice not found');
+      const quota = await this.limits.canCreateInvoice(
+        src.business_id,
+        user.id,
+      );
+      if (!quota.allowed) return fail(quota.message);
       const now = new Date();
       const dup = await this.prisma.invoices.create({
         data: {

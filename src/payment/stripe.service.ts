@@ -38,6 +38,7 @@ export class StripeService {
    * Hosted Checkout for a recurring subscription. The price is given inline,
    * so plans don't have to be mirrored in Stripe; Stripe bills each period
    * automatically. `metadata` is copied onto the Stripe subscription too.
+   * With `trialEnd`, the card is saved now and first charged then.
    */
   async createSubscriptionCheckout(params: {
     email: string;
@@ -48,6 +49,7 @@ export class StripeService {
     successUrl: string;
     cancelUrl: string;
     metadata: Record<string, string>;
+    trialEnd?: Date;
   }): Promise<string> {
     if (!this.stripe) throw new Error('Stripe is not configured');
     const session = await this.stripe.checkout.sessions.create({
@@ -65,7 +67,12 @@ export class StripeService {
           },
         },
       ],
-      subscription_data: { metadata: params.metadata },
+      subscription_data: {
+        metadata: params.metadata,
+        ...(params.trialEnd && {
+          trial_end: Math.floor(params.trialEnd.getTime() / 1000),
+        }),
+      },
       metadata: params.metadata,
       success_url: params.successUrl,
       cancel_url: params.cancelUrl,

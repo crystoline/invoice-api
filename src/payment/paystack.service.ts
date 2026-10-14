@@ -98,12 +98,12 @@ export class PaystackService {
   }
 
   /**
-   * Start a subscription checkout: the first charge is taken now and Paystack
-   * then bills the plan automatically. Returns the hosted checkout URL.
+   * Hosted checkout for the first period of a subscription: a one-off card
+   * charge. Card only, because the saved card (its authorization) is what the
+   * recurring subscription charges afterwards. Returns the checkout URL.
    */
-  async initializeSubscription(params: {
+  async initializeCardPayment(params: {
     email: string;
-    planCode: string;
     amountMinor: number;
     currency: string;
     callbackUrl: string;
@@ -115,15 +115,36 @@ export class PaystackService {
         method: 'POST',
         body: {
           email: params.email,
-          amount: params.amountMinor, // overridden by the plan's amount
-          plan: params.planCode,
+          amount: params.amountMinor,
           currency: params.currency,
+          channels: ['card'],
           callback_url: params.callbackUrl,
           metadata: params.metadata,
         },
       },
     );
     return data.authorization_url;
+  }
+
+  /**
+   * Subscribe a customer to a plan on their saved card. The first charge is
+   * on `startDate`, then every plan interval after it.
+   */
+  async createSubscription(params: {
+    customer: string;
+    planCode: string;
+    authorization: string;
+    startDate: Date;
+  }): Promise<PaystackSubscription> {
+    return this.request<PaystackSubscription>('/subscription', {
+      method: 'POST',
+      body: {
+        customer: params.customer,
+        plan: params.planCode,
+        authorization: params.authorization,
+        start_date: params.startDate.toISOString(),
+      },
+    });
   }
 
   /** Subscriptions of a customer (id or code), optionally for one plan code. */

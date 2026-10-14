@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import { IMAGE_TYPES, StorageService } from '../storage/storage.service';
 import { InvitationService } from './invitation.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { toSpringPage } from '../common/dto/page';
 import { AuthUser } from '../common/decorators/current-user.decorator';
@@ -49,6 +50,7 @@ export class BusinessService {
     private readonly config: ConfigService,
     private readonly invitations: InvitationService,
     private readonly storage: StorageService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   private mapUserEntity(u: users | null | undefined) {
@@ -155,6 +157,8 @@ export class BusinessService {
       });
       if (!dbUser?.verified)
         return fail('Verify your account to add a business');
+      const room = await this.limits.canCreateBusiness(user.id);
+      if (!room.allowed) return fail(room.message);
 
       const created = await this.prisma.businesses.create({
         data: {
@@ -365,6 +369,8 @@ export class BusinessService {
         where: { id: businessId },
       });
       if (!biz) return fail('Business not found.');
+      const room = await this.limits.canInvite(businessId, user.id);
+      if (!room.allowed) return fail(room.message);
       const code = await this.invitations.create(
         businessId,
         address,
@@ -407,6 +413,14 @@ export class BusinessService {
       if (!biz) return fail('Business not found.');
       if (biz.owner_id === user.id)
         return fail('You already own this business.');
+      const key = {
+        business_id_user_id: { business_id: businessId, user_id: user.id },
+      };
+      // Checked before the code is spent, so a full team doesn't burn it.
+      if (!(await this.prisma.business_members.findUnique({ where: key }))) {
+        const room = await this.limits.canJoin(businessId, user.id);
+        if (!room.allowed) return fail(room.message);
+      }
       const result = await this.invitations.redeem(businessId, code, user.id);
       if (result.status !== 'ok') {
         return fail(
@@ -419,9 +433,7 @@ export class BusinessService {
       }
       // Already a member? Keep their current role rather than silently changing it.
       const member = await this.prisma.business_members.upsert({
-        where: {
-          business_id_user_id: { business_id: businessId, user_id: user.id },
-        },
+        where: key,
         create: {
           business_id: businessId,
           user_id: user.id,

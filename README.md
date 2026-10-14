@@ -102,7 +102,15 @@ so do steps 1–3 **before** pushing.
 
    After `20261014000000_billing_jurisdiction`, open **Admin → Plans**. Existing plans became the Nigeria
    (NGN) plans, and each one was copied as "<name> (USD)" for everyone else using the old USD prices.
-   Check those prices and names before customers see them.
+   Check those prices and names before customers see them. The public Pricing page shows these plans
+   as they are.
+
+   **Plan limits are enforced.** A business runs on its owner's plan. Owners without a subscription, which
+   includes everyone who never subscribed, get the **Free** plan's limits. Those are invoices a month
+   (across all their businesses), businesses owned, people per business (owner included), recurring
+   invoices and online payments. Check the Free plans' limits before deploying, because they decide what
+   existing users can still create. Nothing is deleted when a limit is hit: existing data stays, and
+   only new invoices, businesses, invitations and recurring runs are refused.
 
 2. **Environment variables** (Render → service → Environment):
 

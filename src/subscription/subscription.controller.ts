@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Query } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { SubscriptionBillingService } from './subscription-billing.service';
 import {
@@ -6,6 +6,7 @@ import {
   type AuthUser,
 } from '../common/decorators/current-user.decorator';
 import { Authenticated } from '../common/authz/authz.decorators';
+import { Public } from '../common/decorators/public.decorator';
 import {
   SubscribeDto,
   ChangePlanDto,
@@ -46,6 +47,12 @@ export class SubscriptionController {
     return this.subscriptions.getCurrent(user);
   }
 
+  /** The plan in force (the Free plan without a subscription) and its usage. */
+  @Get('usage')
+  usage(@CurrentUser() user: AuthUser) {
+    return this.subscriptions.getUsage(user);
+  }
+
   @Post('subscribe')
   subscribe(@Body() dto: SubscribeDto, @CurrentUser() user: AuthUser) {
     return this.subscriptions.subscribe(dto, user);
@@ -70,5 +77,17 @@ export class SubscriptionController {
   @Put('country')
   setCountry(@Body() dto: CountryDto, @CurrentUser() user: AuthUser) {
     return this.subscriptions.setCountry(dto, user);
+  }
+}
+
+/** PublicPlansController — `/api/public/plans`, for the marketing pricing page. */
+@Controller('public/plans')
+export class PublicPlansController {
+  constructor(private readonly subscriptions: SubscriptionService) {}
+
+  @Public()
+  @Get()
+  list(@Query('region') region?: string) {
+    return this.subscriptions.getPublicPlans(region);
   }
 }

@@ -28,6 +28,7 @@ export interface PaystackEvent {
     currency?: string;
     metadata?: unknown;
     customer?: { id?: number; email?: string; customer_code?: string };
+    authorization?: { authorization_code?: string; reusable?: boolean };
     plan?: { plan_code?: string } | null;
     subscription_code?: string;
     email_token?: string;
@@ -41,7 +42,20 @@ interface SubscriptionMeta {
   userId?: string;
   planId?: string;
   interval?: string;
+  /** Paystack: the plan its renewals run on. */
+  planCode?: string;
+  /** ISO date the paid period starts — the end of the trial being paid for. */
+  startAt?: string;
 }
+
+/** A future date from metadata, or null. */
+const futureDate = (iso: unknown, now = new Date()): Date | null => {
+  const d = new Date(asText(iso));
+  return Number.isNaN(d.getTime()) || d <= now ? null : d;
+};
+
+/** Stripe Checkout only accepts a trial ending at least 48 hours out. */
+const STRIPE_MIN_TRIAL_MS = 49 * 60 * 60 * 1000;
 
 /** Paystack may echo metadata back as a JSON string. */
 const parseMeta = (raw: unknown): SubscriptionMeta => {
@@ -109,12 +123,16 @@ export class SubscriptionBillingService {
     const { currency, gateway } = BILLING[jurisdiction];
     const amountMinor = toMinor(price);
     const returnUrl = `${this.frontendUrl()}/dashboard/settings/subscription`;
-    const metadata = {
+    const metadata: Record<string, string> = {
       kind: 'subscription',
       userId: String(user.id),
       planId: String(plan.id),
       interval,
     };
+    // Paying during a trial keeps the days left: the paid period starts when
+    // the trial ends. Stripe saves the card and charges then; Paystack can't
+    // defer a first charge, so it charges now for the period after the trial.
+    let startAt = await this.unusedTrialEnd(user.id);
 
     try {
       let checkoutUrl: string;
@@ -129,18 +147,25 @@ export class SubscriptionBillingService {
           amountMinor,
           currency,
         );
-        checkoutUrl = await this.paystack.initializeSubscription({
+        checkoutUrl = await this.paystack.initializeCardPayment({
           email: dbUser.email,
-          planCode,
           amountMinor,
           currency,
           callbackUrl: `${returnUrl}?checkout=success`,
-          metadata,
+          metadata: {
+            ...metadata,
+            planCode,
+            ...(startAt && { startAt: startAt.toISOString() }),
+          },
         });
       } else {
         if (!this.stripe.configured)
           return fail(
             "Card payments aren't available right now. Please try again later.",
+          );
+        if (startAt)
+          startAt = new Date(
+            Math.max(startAt.getTime(), Date.now() + STRIPE_MIN_TRIAL_MS),
           );
         checkoutUrl = await this.stripe.createSubscriptionCheckout({
           email: dbUser.email,
@@ -150,7 +175,11 @@ export class SubscriptionBillingService {
           interval: interval === 'YEARLY' ? 'year' : 'month',
           successUrl: `${returnUrl}?checkout=success`,
           cancelUrl: `${returnUrl}?checkout=cancelled`,
-          metadata,
+          metadata: {
+            ...metadata,
+            ...(startAt && { startAt: startAt.toISOString() }),
+          },
+          trialEnd: startAt ?? undefined,
         });
       }
       return ok('Continue to checkout', {
@@ -159,6 +188,7 @@ export class SubscriptionBillingService {
         currency,
         amount: price,
         interval,
+        periodStartsAt: startAt,
       });
     } catch (e) {
       this.logger.error(`Checkout failed: ${(e as Error).message}`);
@@ -198,6 +228,23 @@ export class SubscriptionBillingService {
       const row = await this.prisma.gateway_plans.findFirst({ where: key });
       return row?.gateway_plan_code ?? code;
     }
+  }
+
+  /**
+   * When the trial being paid for ends; null when not on one. A Stripe
+   * subscription that hasn't charged the card yet is still in that trial, so
+   * switching plans from it keeps the days too.
+   */
+  private async unusedTrialEnd(userId: bigint): Promise<Date | null> {
+    const current = await this.prisma.subscriptions.findFirst({
+      where: { user_id: userId, is_active: true, end_date: { gt: new Date() } },
+      orderBy: { start_date: 'desc' },
+    });
+    if (!current) return null;
+    const onTrial = current.status === 'TRIAL' && !current.payment_gateway;
+    const cardNotYetCharged =
+      current.payment_gateway === 'STRIPE' && !current.last_payment_date;
+    return onTrial || cardNotYetCharged ? current.end_date : null;
   }
 
   // ---- cancellation ---------------------------------------------------------
@@ -270,7 +317,8 @@ export class SubscriptionBillingService {
     const meta = parseMeta(d.metadata);
 
     if (meta.kind === 'subscription') {
-      // First charge of a new subscription (from our checkout).
+      // First period of a new subscription (our checkout's one-off charge).
+      // It runs from the end of the trial being paid for, if any, else now.
       const userId = asId(meta.userId);
       const planId = asId(meta.planId);
       const interval = parseInterval(meta.interval);
@@ -281,11 +329,11 @@ export class SubscriptionBillingService {
         interval,
         gateway: 'PAYSTACK',
         customerId: d.customer?.customer_code ?? null,
+        endDate: addInterval(futureDate(meta.startAt) ?? new Date(), interval),
+        chargedNow: true,
       });
       await this.recordPayment(sub.id, amount, currency, 'PAYSTACK', reference);
-      await this.linkPaystackSubscription(sub).catch((e: Error) =>
-        this.logger.warn(`Paystack subscription not linked yet: ${e.message}`),
-      );
+      await this.startPaystackRenewals(sub, meta.planCode, d.authorization);
       return;
     }
 
@@ -303,6 +351,44 @@ export class SubscriptionBillingService {
     await this.extend(sub);
   }
 
+  /**
+   * Renewals run on a Paystack subscription that charges the saved card when
+   * the paid period ends. Without one, the plan simply won't renew.
+   */
+  private async startPaystackRenewals(
+    sub: subscriptions,
+    planCode: string | undefined,
+    card: NonNullable<PaystackEvent['data']>['authorization'],
+  ): Promise<void> {
+    try {
+      if (!planCode || !sub.gateway_customer_id)
+        throw new Error('missing plan or customer');
+      if (!card?.authorization_code || card.reusable === false)
+        throw new Error('the card used cannot be charged again');
+      const remote = await this.paystack.createSubscription({
+        customer: sub.gateway_customer_id,
+        planCode,
+        authorization: card.authorization_code,
+        startDate: sub.end_date,
+      });
+      await this.prisma.subscriptions.update({
+        where: { id: sub.id },
+        data: {
+          gateway_subscription_id: remote.subscription_code,
+          gateway_token: remote.email_token,
+        },
+      });
+    } catch (e) {
+      this.logger.error(
+        `Subscription ${sub.id} won't renew automatically: ${(e as Error).message}`,
+      );
+      await this.prisma.subscriptions.update({
+        where: { id: sub.id },
+        data: { auto_renew: false },
+      });
+    }
+  }
+
   private async onPaystackSubscriptionCreated(
     d: NonNullable<PaystackEvent['data']>,
   ) {
@@ -312,11 +398,13 @@ export class SubscriptionBillingService {
       d.customer.email,
       d.plan.plan_code,
     );
-    // Not activated yet? Activation looks the subscription up itself.
+    // Not activated yet, or already linked by startPaystackRenewals?
     if (!sub || sub.gateway_subscription_id) return;
     await this.prisma.subscriptions.update({
       where: { id: sub.id },
       data: {
+        // Our create call failed but Paystack made the subscription anyway.
+        auto_renew: !sub.is_cancelled,
         gateway_subscription_id: d.subscription_code,
         gateway_token: d.email_token ?? null,
         next_payment_date: d.next_payment_date
@@ -408,6 +496,7 @@ export class SubscriptionBillingService {
           );
         }
         if (!sub) return;
+        if (!inv.amount_paid) return; // the $0 invoice that opens a trial
         const periodEnd = inv.lines?.data?.[0]?.period?.end;
         const recorded = await this.recordPayment(
           sub.id,
@@ -477,6 +566,9 @@ export class SubscriptionBillingService {
     const planId = asId(metadata.planId);
     const interval = parseInterval(metadata.interval);
     if (!userId || !planId || !interval) return null;
+    // Paid during a trial: the card is charged when the trial ends, and
+    // invoice.paid then moves the period on. Otherwise it was charged now.
+    const trialEnd = futureDate(metadata.startAt);
     return this.activate({
       userId,
       planId,
@@ -484,15 +576,18 @@ export class SubscriptionBillingService {
       gateway: 'STRIPE',
       gatewaySubscriptionId: subscriptionId,
       customerId,
+      endDate: trialEnd ?? addInterval(new Date(), interval),
+      chargedNow: !trialEnd,
     });
   }
 
   // ---- shared ---------------------------------------------------------------
 
   /**
-   * Start (or find) the paid subscription a gateway confirmed. Whatever the
-   * user had before — trial, free plan, or a previous paid plan they are
-   * switching from — is retired; a previous gateway subscription is stopped.
+   * Start (or find) the paid subscription a gateway confirmed, giving access
+   * until `endDate`. Whatever the user had before — trial, free plan, or a
+   * previous paid plan they are switching from — is retired; a previous
+   * gateway subscription is stopped.
    */
   private async activate(p: {
     userId: bigint;
@@ -501,6 +596,9 @@ export class SubscriptionBillingService {
     gateway: Gateway;
     gatewaySubscriptionId?: string;
     customerId?: string | null;
+    endDate: Date;
+    /** False when the card was saved for a charge at the end of a trial. */
+    chargedNow: boolean;
   }): Promise<subscriptions> {
     if (p.gatewaySubscriptionId) {
       const existing = await this.byGatewayId(
@@ -529,14 +627,13 @@ export class SubscriptionBillingService {
       data: { is_active: false, status: 'REPLACED' },
     });
     const now = new Date();
-    const end = addInterval(now, p.interval);
     return this.prisma.subscriptions.create({
       data: {
         user_id: p.userId,
         plan_id: p.planId,
         status: 'ACTIVE',
         start_date: now,
-        end_date: end,
+        end_date: p.endDate,
         is_active: true,
         is_cancelled: false,
         auto_renew: true,
@@ -544,8 +641,8 @@ export class SubscriptionBillingService {
         billing_interval: p.interval,
         gateway_subscription_id: p.gatewaySubscriptionId ?? null,
         gateway_customer_id: p.customerId ?? null,
-        last_payment_date: now,
-        next_payment_date: end,
+        last_payment_date: p.chargedNow ? now : null,
+        next_payment_date: p.endDate,
       },
     });
   }

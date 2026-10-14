@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client';
 import type Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
 import { StripeService } from './stripe.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { InitPaymentDto, ManualPaymentDto } from './dto/payment.dto';
 
@@ -18,6 +19,7 @@ export class PaymentService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly stripe: StripeService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   /** Mark an invoice paid (or partially) and upsert a SUCCESS payment record. */
@@ -80,6 +82,8 @@ export class PaymentService {
       include: { customers: true, businesses: true },
     });
     if (!invoice) return fail('Invoice not found');
+    const plan = await this.limits.canCollectPayments(invoice.business_id);
+    if (!plan.allowed) return fail(plan.message);
     try {
       const frontend =
         this.config.get<string>('FRONTEND_URL') ?? 'http://localhost:3000';
@@ -200,6 +204,8 @@ export class PaymentService {
       include: { businesses: true },
     });
     if (!invoice) return fail('Invoice not found');
+    const plan = await this.limits.canCollectPayments(invoice.business_id);
+    if (!plan.allowed) return fail(plan.message);
     try {
       const intent = await this.stripe.createPaymentIntent(
         Math.round(n(invoice.total_amount) * 100),

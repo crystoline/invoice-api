@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, recurringinvoices } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
+import { AuthUser } from '../common/decorators/current-user.decorator';
 import { ok, fail, ResponseObject } from '../common/dto/response-object';
 import { carryDueDate } from '../common/util/date.util';
 import {
@@ -21,6 +23,7 @@ export class RecurringInvoiceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   private mapDTO(r: recurringinvoices) {
@@ -78,13 +81,21 @@ export class RecurringInvoiceService {
   // a schedule is scoped through its template invoice's business.
 
   // POST /api/recurring-invoices — WRITE on the template's business (guard)
-  async create(dto: CreateRecurringInvoiceDto): Promise<ResponseObject> {
+  async create(
+    dto: CreateRecurringInvoiceDto,
+    user: AuthUser,
+  ): Promise<ResponseObject> {
     try {
       if (!dto.templateInvoiceId) return fail('templateInvoiceId is required');
       const template = await this.prisma.invoices.findUnique({
         where: { id: BigInt(dto.templateInvoiceId) },
       });
       if (!template) return fail('Template invoice not found');
+      const allowed = await this.limits.canUseRecurring(
+        template.business_id,
+        user.id,
+      );
+      if (!allowed.allowed) return fail(allowed.message);
       const frequency = dto.frequency ?? 'MONTHLY';
       const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
       const rec = await this.prisma.recurringinvoices.create({
@@ -195,11 +206,22 @@ export class RecurringInvoiceService {
     }
   }
 
-  async setActive(id: bigint, active: boolean): Promise<ResponseObject> {
+  async setActive(
+    id: bigint,
+    active: boolean,
+    user?: AuthUser,
+  ): Promise<ResponseObject> {
     const rec = await this.prisma.recurringinvoices.findUnique({
       where: { id },
     });
     if (!rec) return fail('Recurring invoice not found');
+    if (active && rec.business_id) {
+      const allowed = await this.limits.canUseRecurring(
+        rec.business_id,
+        user?.id,
+      );
+      if (!allowed.allowed) return fail(allowed.message);
+    }
     const updated = await this.prisma.recurringinvoices.update({
       where: { id },
       data: { is_active: active },
@@ -258,6 +280,15 @@ export class RecurringInvoiceService {
     });
   }
 
+  /** Why the business's plan can't take an occurrence now; null if it can. */
+  private async planRefusal(businessId: bigint | null): Promise<string | null> {
+    if (!businessId) return 'the schedule has no business';
+    const recurring = await this.limits.canUseRecurring(businessId);
+    if (!recurring.allowed) return recurring.message;
+    const quota = await this.limits.canCreateInvoice(businessId);
+    return quota.allowed ? null : quota.message;
+  }
+
   /**
    * Called by the daily scheduler. Generates an invoice for every active
    * schedule whose next_invoice_date is due, advances the schedule, and
@@ -286,6 +317,23 @@ export class RecurringInvoiceService {
           await this.prisma.recurringinvoices.update({
             where: { id: r.id },
             data: { is_active: false },
+          });
+          continue;
+        }
+        // On a plan without recurring invoices, or out of this month's
+        // invoices, this occurrence is skipped rather than backfilled later.
+        const refused = await this.planRefusal(r.business_id);
+        if (refused) {
+          this.logger.warn(`Recurring #${r.id} skipped: ${refused}`);
+          await this.prisma.recurringinvoices.update({
+            where: { id: r.id },
+            data: {
+              next_invoice_date: this.advance(
+                r.next_invoice_date ?? now,
+                r.frequency,
+                r.day_of_month,
+              ),
+            },
           });
           continue;
         }

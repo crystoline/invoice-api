@@ -11,6 +11,19 @@ const num = (v: number | null): number | null => (v == null ? null : Number(v));
 export const isFreePlan = (p: plans): boolean =>
   !((p.price_monthly ?? 0) > 0) && !((p.price_yearly ?? 0) > 0);
 
+/** Grace after a missed renewal before access ends (gateways retry meanwhile). */
+export const GRACE_DAYS = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a subscription still grants its plan: trials and free plans until
+ * end_date, paid plans through the grace window after it.
+ */
+export const grantsAccess = (s: subscriptions, now = new Date()): boolean =>
+  !!s.is_active &&
+  s.end_date.getTime() + (s.payment_gateway ? GRACE_DAYS * DAY_MS : 0) >
+    now.getTime();
+
 /** A subscription a gateway is billing (or has billed) that still grants access. */
 export const isPaidAndCurrent = (s: subscriptions, now = new Date()): boolean =>
   !!s.payment_gateway &&

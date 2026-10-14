@@ -14,22 +14,23 @@ import {
   BILLING,
   Jurisdiction,
   daysFrom,
+  isJurisdiction,
   jurisdictionOf,
   normalizeCountry,
 } from './jurisdiction';
 import {
+  GRACE_DAYS,
   isFreePlan,
   isPaidAndCurrent,
   mapPlan,
   mapSubscription,
   subInclude,
 } from './subscription.mapper';
+import { PlanLimitsService } from '../plan-limits/plan-limits.service';
 
 const TRIAL_DAYS = 14;
 /** Free plans don't lapse. */
 const FREE_PLAN_YEARS = 100;
-/** Grace after a missed renewal before access ends (gateways retry meanwhile). */
-const GRACE_DAYS = 3;
 
 /** Default catalogue: created only when there are no plans at all. */
 const DEFAULT_TIERS = [
@@ -84,6 +85,7 @@ export class SubscriptionService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly billing: SubscriptionBillingService,
+    private readonly limits: PlanLimitsService,
   ) {}
 
   /**
@@ -237,6 +239,30 @@ export class SubscriptionService implements OnModuleInit {
       orderBy: [{ price_monthly: 'asc' }, { id: 'asc' }],
     });
     return ok('Plans retrieved successfully.', rows.map(mapPlan));
+  }
+
+  /**
+   * GET /public/plans?region=NG|OTHER — the catalogue a visitor from that
+   * region would see on sign-up (anything but NG reads as OTHER).
+   */
+  async getPublicPlans(region: string | undefined): Promise<ResponseObject> {
+    const code = (region ?? '').toUpperCase();
+    const jurisdiction = isJurisdiction(code) ? code : Jurisdiction.OTHER;
+    const rows = await this.prisma.plans.findMany({
+      where: { is_active: true, jurisdiction },
+      orderBy: [{ price_monthly: 'asc' }, { id: 'asc' }],
+    });
+    return ok('Plans retrieved successfully.', {
+      jurisdiction,
+      ...BILLING[jurisdiction],
+      trialDays: TRIAL_DAYS,
+      plans: rows.map(mapPlan),
+    });
+  }
+
+  /** GET /subscription/usage — the plan in force and how much of it is used. */
+  async getUsage(user: AuthUser): Promise<ResponseObject> {
+    return ok('Usage retrieved.', await this.limits.usage(user.id));
   }
 
   /** GET /subscription/current — the caller's latest subscription (or null). */
@@ -461,46 +487,5 @@ export class SubscriptionService implements OnModuleInit {
         `Expired ${trials.count} trial(s) and ${paid.count} lapsed paid subscription(s).`,
       );
     }
-  }
-
-  /**
-   * Quota gate for invoice creation: compares the user's current plan
-   * `max_invoices_per_month` against this calendar month's invoice count for the
-   * given business. A null limit means unlimited. Provided for callers to wire
-   * in (not enforced globally).
-   */
-  async checkInvoiceQuota(
-    userId: bigint,
-    businessId: bigint,
-  ): Promise<{ allowed: boolean; message?: string }> {
-    const sub = await this.currentSubscription(userId);
-    if (!sub || !sub.plans) {
-      return {
-        allowed: false,
-        message:
-          'No active subscription plan found. Please subscribe to a plan.',
-      };
-    }
-
-    const limit = sub.plans.max_invoices_per_month;
-    if (limit == null) return { allowed: true }; // unlimited
-
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const used = await this.prisma.invoices.count({
-      where: {
-        business_id: businessId,
-        invoice_date: { gte: startOfMonth, lt: startOfNextMonth },
-      },
-    });
-
-    if (used >= limit) {
-      return {
-        allowed: false,
-        message: `Monthly invoice limit reached (${used}/${limit}). Upgrade your plan to create more.`,
-      };
-    }
-    return { allowed: true };
   }
 }
